@@ -103,10 +103,10 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $portalBaseUrl    | String value of HelloID Base Url  | (Default Global Variable) |
 | $portalApiKey | String value of HelloID Api Key   | (Default Global Variable) |
 | $portalApiSecret  | String value of HelloID Api Secret    | (Default Global Variable) |
-| $AADtenantID    | String value of Azure AD Tenant ID  | Recommended to set as Global Variable |
-| $AADAppId | String value of Azure AD App ID  | Recommended to set as Global Variable |
-| $AADAppSecret  | String value of Azure AD App Secret  | Recommended to set as Global Variable |
-| $AADGroupsSearchFilter   | String value of seachfilter of which Azure AD groups to include   | Optional, when no filter is provided ($AADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections  |
+| $AzureADtenantID    | String value of Azure AD Tenant ID  | Recommended to set as Global Variable |
+| $AzureADAppId | String value of Azure AD App ID  | Recommended to set as Global Variable |
+| $AzureADAppSecret  | String value of Azure AD App Secret  | Recommended to set as Global Variable |
+| $AzureADGroupsSearchFilter   | String value of seachfilter of which Azure AD groups to include   | Optional, when no filter is provided ($AzureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections  |
 | $ProductAccessGroup  | String value of which HelloID group will have access to the products | Optional, if not found, the product is created without Access Group  |
 | $ProductCategory  | String value of which HelloID category will be used for the products | Required, must be an existing category if not found, the task will fail  |
 | $useADManagedByGroupAsResourceOwner  | Boolean value of whether to use the AD "ManagedBy" as resource owner for the products | Optional, can only be used when the "ManagedBy" is a group, does not work for user  |
