@@ -17,15 +17,15 @@ $verboseLogging = $false
 
 # Make sure to create the Global variables defined below in HelloID
 #HelloID Connection Configuration
-$script:PortalBaseUrl = $portalBaseUrl
-$portalApiKey = $portalApiKey
-$portalApiSecret = $portalApiSecret
+# $script:PortalBaseUrl = "" # Set from Global Variable
+# $portalApiKey ="" # Set from Global Variable
+# $portalApiSecret = "" # Set from Global Variable
 
 #AzureAD Connection Configuration
 $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
-$azureADtenantID = ""
-$azureADAppId = ""
-$azureADAppSecret = ""
+# $AzureADtenantID = "" # Set from Global Variable
+# $AzureADAppId = "" # Set from Global Variable
+# $AzureADAppSecret = "" # Set from Global Variable
 $azureADGroupsSearchFilter = "`$search=`"displayName:department_`"" # Optional, when no filter is provided ($azureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections
 
 #HelloID Self service Product Configuration
