@@ -1,23 +1,21 @@
-# HelloID-Conn-SA-Sync-AzureActiveDirectory-Groupmemberships-To-SelfService-Productassignments
-Synchronizes Azure AD groupmemberships to HelloID Self service productassignments
+# HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products
+Synchronizes Azure AD groups to HelloID Self service products
 
-<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments/network/members"><img src="https://img.shields.io/github/forks/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments" alt="Forks Badge"/></a>
-<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments/pulls"><img src="https://img.shields.io/github/issues-pr/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments" alt="Pull Requests Badge"/></a>
-<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments/issues"><img src="https://img.shields.io/github/issues/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments" alt="Issues Badge"/></a>
-<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments/graphs/contributors"><img alt="GitHub contributors" src="https://img.shields.io/github/contributors/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groupmemberships-To-SelfService-Productassignments?color=2b9348"></a>
-
+<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products/network/members"><img src="https://img.shields.io/github/forks/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products" alt="Forks Badge"/></a>
+<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products/pulls"><img src="https://img.shields.io/github/issues-pr/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products" alt="Pull Requests Badge"/></a>
+<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products/issues"><img src="https://img.shields.io/github/issues/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products" alt="Issues Badge"/></a>
+<a href="https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products/graphs/contributors"><img alt="GitHub contributors" src="https://img.shields.io/github/contributors/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products?color=2b9348"></a>
 
 | :information_source: Information |
 |:---------------------------|
 | This repository contains the connector and configuration code only. The implementer is responsible to acquire the connection details such as username, password, certificate, etc. You might even need to sign a contract or agreement with the supplier before implementing this connector. Please contact the client's application manager to coordinate the connector requirements.       |
 
 ## Table of Contents
-- [HelloID-Conn-SA-Sync-AzureActiveDirectory-Groupmemberships-To-SelfService-Productassignments](#helloid-conn-sa-sync-azureactivedirectory-groupmemberships-to-selfservice-productassignments)
+- [HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products](#helloid-conn-sa-sync-azureactivedirectory-groups-to-selfservice-products)
   - [Table of Contents](#table-of-contents)
   - [Requirements](#requirements)
   - [Introduction](#introduction)
   - [Getting started](#getting-started)
-  - [Getting started](#getting-started-1)
     - [Create an API key and secret for HelloID](#create-an-api-key-and-secret-for-helloid)
     - [Getting the Azure AD graph API access](#getting-the-azure-ad-graph-api-access)
       - [Application Registration](#application-registration)
@@ -37,16 +35,13 @@ An example is given below:
 - Make sure the sychronization is configured to meet your requirements.
 
 ## Introduction
+By using this connector, you will have the ability to create and remove HelloID SelfService Products based on groups in your Azure Active Directory.
 
-By using this connector, you will have the ability to create and remove HelloID SelfService Productassignments based on groupmemberships in your Azure Active Directory.
+The products will be create for each group in scope. This way you won't have to manually create a product for each group.
 
-The products will be assigned to a user when they are already a member of the group that the product would make them member of. This way the product can be returned to revoke the groupmembership without having to first request all the products "you already have".
+And vice versa for the removing of the products. The products will be removed (or disabled, based on your preference) when a group is nog longer in scope. This way no products will remain that "should no longer exist".
 
-And vice versa for the removing of the productassignments. The products will be returned from a user when they are already no longer a member of the group that the product would make them member of. This way the product can be requested again without having to first return all the products "you already no longer have".
-
-This is intended for scenarios where the groupmemberships are managed by other sources (e.g. manual actions or Provisioning) than the HelloID products to keep this in sync. This groupmembership sync is desinged to work in combination with the [Azure Active Directory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products).
-
-## Getting started
+This is intended for scenarios where there are (lots of) groups that we want to be requestable as a product. This group sync is desinged to work in combination with the [Azure Active Directory Groupmembersips to Productassignments Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groupmemberships-To-SelfService-Productassignments).
 
 ## Getting started
 
@@ -103,7 +98,6 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 *	At last we need to get the <b>Tenant ID</b>. This can be found in the Azure Portal by going to <b>Azure Active Directory > Overview</b>.
 
 ### Synchronization settings
-
 | Variable name | Description   | Notes |
 | ------------- | -----------   | ----- |
 | $portalBaseUrl    | String value of HelloID Base Url  | (Default Global Variable) |
@@ -113,16 +107,27 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $AzureADAppId | String value of Azure AD App ID  | Recommended to set as Global Variable |
 | $AzureADAppSecret  | String value of Azure AD App Secret  | Recommended to set as Global Variable |
 | $AzureADGroupsSearchFilter   | String value of seachfilter of which Azure AD groups to include   | Optional, when no filter is provided ($AzureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections  |
-| $ProductSkuPrefix | String value of prefix filter of which HelloID Self service Products to include    | Optional, when no SkuPrefix is provided ($ProductSkuPrefix = $null), all products will be queried |
-| $PowerShellActionName | String value of name of the PowerShell action that grants the Azure AD user to the Azure AD group | The default value ("Add-AzureADUserToAzureADGroup") is set to match the value from the [Azure Active Directory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products)   |
-| $PowerShellActionVariableCorrelationProperty  | String value of name of the property of HelloID Self service Product action variables to match to Azure AD Groups (name of the variable of the PowerShell action that contains the group) | The default value ("GroupId") is set to match the value from the [ActiveDirectory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groups-To-SelfService-Products), where Group is set as the variable name for the group for the Product actions. If your products are from a different source, change this accordingly (e.g. Group)   |
-| $azureADGroupCorrelationProperty   | String value of name of the property of Azure AD groups to match Groups in HelloID Self service Product actions (the group) | The default value ("id") is set to match the value from the [Azure Active Directory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products), where the Azure AD group SamAccountName is set as the Group value for the Product actions. If your products are from a different source, change this accordingly (e.g. Name)   |
-| $azureADUserCorrelationProperty    | String value of name of the property of Azure AD users to match to HelloID users    | The default value ("id") is set to match the value from the [Azure Active Directory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groups-To-SelfService-Products), where the Azure AD user ID is set to the HelloID User immutableId. If your users are from a different source, change this accordingly (e.g. userPrincipalName)  |
-| $helloIDUserCorrelationProperty   | String value of name of the property of HelloID users to match to Azure AD users    | The default value ("immutableId") is set to match the value from the [Azure AD Sync](https://docs.helloid.com/en/access-management/directory-sync/azure-ad-sync.html), where the Azure AD user ID is set to the HelloID User immutableId. If your users are from a different source, change this accordingly (e.g. username)   |
+| $ProductAccessGroup  | String value of which HelloID group will have access to the products | Optional, if not found, the product is created without Access Group  |
+| $ProductCategory  | String value of which HelloID category will be used for the products | Required, must be an existing category if not found, the task will fail  |
+| $useADManagedByGroupAsResourceOwner  | Boolean value of whether to use the AD "ManagedBy" as resource owner for the products | Optional, can only be used when the "ManagedBy" is a group, does not work for user  |
+| $SAProductResourceOwner  | String value of which HelloID group to use as resource owner for the products | Optional, if empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]")  |
+| $SAProductWorkflow  | String value of which HelloID Approval Workflow to use for the products | Optional, if empty. The Default HelloID Workflow is used. If specified Workflow does not exist the task will fail  |
+| $FaIcon  | String value of which Font Awesome icon to use for the products | For more valid icon names, see the Font Awesome cheat sheet [here](https://fontawesome.com/v5/cheatsheet)  |
+| $productVisibility  | String value of which Visbility to use for the products | Supported values: All, Resource Owner And Manager, Resource Owner, Disabled. For more information, see the HelloID Docs [here](https://docs.helloid.com/en/service-automation/products/product-settings-reference.html)  |
+| $productRequestCommentOption  | String value of which Comment Option to use for the products | Supported values: Optional, Hidden, Required. For more information, see the HelloID Docs [here](https://docs.helloid.com/en/service-automation/products/product-settings-reference.html)  |
+| $returnProductOnUserDisable  | Boolean value of whether to set the option Return Product On User Disable for the products | For more information, see the HelloID Docs [here](https://docs.helloid.com/en/service-automation/products/product-settings-reference.html)  |
+| $createDefaultEmailActions  | Boolean value of whether to set the option Create Default Email Action for the products | For more information, see the HelloID Docs [here](https://docs.helloid.com/en/service-automation/products/product-settings-reference.html)  |
+| $multipleRequestOption  | Integer value of which option of Multiple Requests to use for the products | Supported values: 1, 2.For more information, see the HelloID Docs [here](https://docs.helloid.com/en/service-automation/products/product-settings-reference.html)  |
+| $removeProduct  | Boolean value of whether to remove the products when they are no longer in scope | If set to $false, obsolete products will be disabled  |
+| $overwriteExistingProduct  | Boolean value of whether to overwrite existing products in scope with the specified properties of this task | **Only meant for when you changed something in the product properties (e.g. the description, approval worklow or icon) and need to update this for all products in scope, should not be set to true when running daily!**  |
+| $overwriteExistingProductAction  | Boolean value of whether to overwrite existing actions of products in scope with the specified actions of this task | **Only meant for when you changed something in the product actions and need to update this for all products in scope, should not be set to true when running daily!**  |
+| $addMissingProductAction  | Boolean value of whether to add the missing specified actions of this task to existing products in scope | **Only meant when you **Only meant for when you changed the product actions and need to add this to all products in scope, should not be set to true when running daily!**  |
+| $ProductSkuPrefix | String value of prefix that will be used in the Code for the products | Optional, but recommended, when no SkuPrefix is provided the products won't be recognizable as created by this task |
+| $adGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
 
 ## Remarks
-- The Productassignments are granted and revoked. Make sure your configuration is correct to avoid unwanted revokes
-- This groupmembership sync is designed to work in combination with the [ActiveDirectory Groups to Products Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-ActiveDirectory-Groups-To-SelfService-Products). If your products are from a different source, this sync task might not work and needs changes accordingly.
+- The Products are created and removed by default. Make sure your configuration is correct to avoid unwanted removals (and change this to disable)
+- This group sync is desinged to work in combination with the [Azure Active Directory Groupmembersips to Productassignments Sync](https://github.com/Tools4everBV/HelloID-Conn-SA-Sync-AzureActiveDirectory-Groupmemberships-To-SelfService-Productassignments).
 
 ## Getting help
 > _For more information on how to configure a HelloID PowerShell scheduled task, please refer to our [documentation](https://docs.helloid.com/hc/en-us/articles/115003253294-Create-Custom-Scheduled-Tasks) pages_
