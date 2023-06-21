@@ -109,7 +109,6 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $AzureADGroupsSearchFilter   | String value of seachfilter of which Azure AD groups to include   | Optional, when no filter is provided ($AzureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections  |
 | $ProductAccessGroup  | String value of which HelloID group will have access to the products | Optional, if not found, the product is created without Access Group  |
 | $ProductCategory  | String value of which HelloID category will be used for the products | Required, must be an existing category if not found, the task will fail  |
-| $useADManagedByGroupAsResourceOwner  | Boolean value of whether to use the AD "ManagedBy" as resource owner for the products | Optional, can only be used when the "ManagedBy" is a group, does not work for user  |
 | $SAProductResourceOwner  | String value of which HelloID group to use as resource owner for the products | Optional, if empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]")  |
 | $SAProductWorkflow  | String value of which HelloID Approval Workflow to use for the products | Optional, if empty. The Default HelloID Workflow is used. If specified Workflow does not exist the task will fail  |
 | $FaIcon  | String value of which Font Awesome icon to use for the products | For more valid icon names, see the Font Awesome cheat sheet [here](https://fontawesome.com/v5/cheatsheet)  |
@@ -123,7 +122,7 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $overwriteExistingProductAction  | Boolean value of whether to overwrite existing actions of products in scope with the specified actions of this task | **Only meant for when you changed something in the product actions and need to update this for all products in scope, should not be set to true when running daily!**  |
 | $addMissingProductAction  | Boolean value of whether to add the missing specified actions of this task to existing products in scope | **Only meant when you **Only meant for when you changed the product actions and need to add this to all products in scope, should not be set to true when running daily!**  |
 | $ProductSkuPrefix | String value of prefix that will be used in the Code for the products | Optional, but recommended, when no SkuPrefix is provided the products won't be recognizable as created by this task |
-| $adGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
+| $azureADGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
 
 ## Remarks
 - The Products are created and removed by default. Make sure your configuration is correct to avoid unwanted removals (and change this to disable)
