@@ -27,9 +27,15 @@ Synchronizes Azure AD groups to HelloID Self service products
   - [HelloID Docs](#helloid-docs)
 
 ## Requirements
+The requirements to run this connector, such as, an App Registration, to be run on-premises, run with concurrent sessions set to a max. of 1, etc.
+An example is given below:
+
 - Make sure you have Windows PowerShell 5.1 installed on the server where the HelloID agent and Service Automation agent are running.
 - **App ID & App Secret** for the app registration with permissions to the Microsoft Graph API.
 - Make sure the sychronization is configured to meet your requirements.
+- Setup synchronization of Azure AD or local AD users and groups to HelloID.
+  - This can be either the [local AD sync](https://docs.helloid.com/en/access-management/directory-sync/active-directory-sync.html) or the [Azure AD sync](https://docs.helloid.com/en/access-management/directory-sync/azure-ad-sync.html).
+  > If using the [local AD sync](https://docs.helloid.com/en/access-management/directory-sync/active-directory-sync.html), make sure the userAttribute "userPrincipalName" is mapped and synced. Also make sure to change the **$taskVariableUserValue** accordingly.
 
 ## Introduction
 By using this connector, you will have the ability to create and remove HelloID SelfService Products based on groups in your Azure Active Directory.
@@ -106,6 +112,7 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $AzureADGroupsSearchFilter   | String value of seachfilter of which Azure AD groups to include   | Optional, when no filter is provided ($AzureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections  |
 | $ProductAccessGroup  | String value of which HelloID group will have access to the products | Optional, if not found, the product is created without Access Group  |
 | $ProductCategory  | String value of which HelloID category will be used for the products | Required, must be an existing category if not found, the task will fail  |
+| $useADManagedByGroupAsResourceOwner  | Boolean value of whether to use the AD "ManagedBy" as resource owner for the products | Optional, can only be used when the "ManagedBy" is a group, does not work for user  |
 | $SAProductResourceOwner  | String value of which HelloID group to use as resource owner for the products | Optional, if empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]")  |
 | $SAProductWorkflow  | String value of which HelloID Approval Workflow to use for the products | Optional, if empty. The Default HelloID Workflow is used. If specified Workflow does not exist the task will fail  |
 | $FaIcon  | String value of which Font Awesome icon to use for the products | For more valid icon names, see the Font Awesome cheat sheet [here](https://fontawesome.com/v5/cheatsheet)  |
@@ -119,7 +126,8 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $overwriteExistingProductAction  | Boolean value of whether to overwrite existing actions of products in scope with the specified actions of this task | **Only meant for when you changed something in the product actions and need to update this for all products in scope, should not be set to true when running daily!**  |
 | $addMissingProductAction  | Boolean value of whether to add the missing specified actions of this task to existing products in scope | **Only meant when you **Only meant for when you changed the product actions and need to add this to all products in scope, should not be set to true when running daily!**  |
 | $ProductSkuPrefix | String value of prefix that will be used in the Code for the products | Optional, but recommended, when no SkuPrefix is provided the products won't be recognizable as created by this task |
-| $azureADGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
+| $adGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
+| $taskVariableUserValue   | String value of the property will be used as variable for the user in the add and remove user to group tasks | The default value ("{{requester.immutableId}}") only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"  |
 
 ## Remarks
 - The Products are created and removed by default. Make sure your configuration is correct to avoid unwanted removals (and change this to disable)
