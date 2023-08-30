@@ -52,7 +52,7 @@ $ProductSkuPrefix = "AADGRP"
 # The value of the property will be used as HelloID Self service Product SKU
 $azureADGroupUniqueProperty = "id"
 # The value of the property will be used as variable for the user in the add and remove user to group tasks
-$taskVariableUserValue = "userPrincipalName" # Note, only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"
+$taskVariableUserValue = "{{requester.immutableId}}" # Note, only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"
 
 #region functions
 function Resolve-HTTPError {
