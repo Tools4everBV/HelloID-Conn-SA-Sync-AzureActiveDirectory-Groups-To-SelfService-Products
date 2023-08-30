@@ -127,6 +127,7 @@ There are multiple ways to authenticate to the Graph API with each has its own p
 | $addMissingProductAction  | Boolean value of whether to add the missing specified actions of this task to existing products in scope | **Only meant when you **Only meant for when you changed the product actions and need to add this to all products in scope, should not be set to true when running daily!**  |
 | $ProductSkuPrefix | String value of prefix that will be used in the Code for the products | Optional, but recommended, when no SkuPrefix is provided the products won't be recognizable as created by this task |
 | $adGroupUniqueProperty   | String value of name of the property that is unique for the Azure AD groups and will be used in the Code for the products | The default value ("id") is set be as unique as possible   |
+| $taskVariableUserValue   | String value of the property will be used as variable for the user in the add and remove user to group tasks | The default value ("{{requester.immutableId}}") only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"  |
 
 ## Remarks
 - The Products are created and removed by default. Make sure your configuration is correct to avoid unwanted removals (and change this to disable)
