@@ -47,8 +47,12 @@ $addMissingProductAction = $false # If True missing product actions (according t
 
 #Target System Configuration
 # Dynamic property invocation
-$ProductSkuPrefix = "AADGRP" # The prefix will be used as the first part HelloID Self service Product SKU.
-$azureADGroupUniqueProperty = "id" # The vaule of the property will be used as HelloID Self service Product SKU
+# The prefix will be used as the first part HelloID Self service Product SKU.
+$ProductSkuPrefix = "AADGRP"
+# The value of the property will be used as HelloID Self service Product SKU
+$azureADGroupUniqueProperty = "id"
+# The value of the property will be used as variable for the user in the add and remove user to group tasks
+$taskVariableUserValue = "userPrincipalName" # Note, only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"
 
 #region functions
 function Resolve-HTTPError {
@@ -1147,7 +1151,7 @@ try {
                 },
                 @{
                     "name"           = "User"
-                    "value"          = "{{requester.immutableId}}"
+                    "value"          = "$taskVariableUserValue"
                     "typeConstraint" = "string"
                     "secure"         = $false
                 }
@@ -1172,7 +1176,7 @@ try {
                 },
                 @{
                     "name"           = "User"
-                    "value"          = "{{requester.immutableId}}"
+                    "value"          = "$taskVariableUserValue"
                     "typeConstraint" = "string"
                     "secure"         = $false
                 }
