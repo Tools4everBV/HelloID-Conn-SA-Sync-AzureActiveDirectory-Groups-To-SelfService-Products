@@ -1,7 +1,7 @@
 #####################################################
 # HelloID-SA-Sync-AzureAD-Groups-To-Products
 #
-# Version: 1.0.0
+# Version: 2.0.0
 #####################################################
 $VerbosePreference = "SilentlyContinue"
 $informationPreference = "Continue"
@@ -18,7 +18,7 @@ $verboseLogging = $false
 # Make sure to create the Global variables defined below in HelloID
 #HelloID Connection Configuration
 # $script:PortalBaseUrl = "" # Set from Global Variable
-# $portalApiKey ="" # Set from Global Variable
+# $portalApiKey = "" # Set from Global Variable
 # $portalApiSecret = "" # Set from Global Variable
 
 #AzureAD Connection Configuration
@@ -29,21 +29,30 @@ $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
 $azureADGroupsSearchFilter = "`$search=`"displayName:department_`"" # Optional, when no filter is provided ($azureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections
 
 #HelloID Self service Product Configuration
-$ProductAccessGroup = "enyoi.org\Users"  # If not found, the product is created without Access Group
-$ProductCategory = "Applicatiegroepen" # Must be an existing category
-$SAProductResourceOwner = "" # If left empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]") - Only used when $useADManagedByGroupAsResourceOwner is false
-$SAProductWorkflow = "Approval by resource owner" # If empty. The Default HelloID Workflow is used. If specified Workflow does not exist the Product creation will raise an error.
-$FaIcon = "windows"
-$productVisibility = "All"
-$productRequestCommentOption = "Hidden" # Define if comments can be added when requesting the product. Supported options: Optional, Hidden, Required
-$returnProductOnUserDisable = $false # If True the product will be returned when the user owning the product gets disabled
-$createDefaultEmailActions = $true # If True the default email actions will be enabled
-$multipleRequestOption = 1 # How many times a product can be requested. 1: Once. 2: Multiple times.
+$productAccessGroup = "Local/__HelloID Selfservice Users"  # If not found, the product is created without extra Access Group
+$calculateProductResourceOwnerPrefixSuffix = $false # If True the resource owner group will be defined per product based on specfied prefix or suffix - If no calculated group is found, the group from $productResourseOwner will be used
+$calculatedResourceOwnerGroupSource = "AzureAD" # Specify the source of the groups - if left empty, this will result in creation of a new group
+$calculatedResourceOwnerGroupPrefix = "" # Specify prefix to recognize the owner group - the owner group will be queried based on the Group name and the specified prefix and suffix - if both left empty, this will result in creation of a new group - if group is not found, it will be created
+$calculatedResourceOwnerGroupSuffix = " - Owner" # Specify suffix to recognize the owner group - the owner group will be queried based on the Group name and the specified prefix and suffix - if both left empty, this will result in creation of a new group - if group is not found, it will be created
+$productResourseOwner = "AzureAD/HelloID_SA_Owners" # If left empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]") - Only used when is false
+$productApprovalWorkflowId = "37ccd286-9f22-44e3-bc2e-7f421387e98e" # If empty, the Default HelloID Workflow is used. If specified Workflow does not exist the Product creation will raise an error.
+$productVisibility = "All" # If empty, "Disabled" is used. Supported options: All, ResourceOwnerAndManager, ResourceOwner, Disabled
+$productRequestCommentOption = "Required" # If empty, "Optional" is used. Supported options: Optional, Hidden, Required
+$productAllowMultipleRequests = $false # If True the product can be requested unlimited times
+$productFaIcon = "windows"
+$productCategory = "Application Groups" # If the category is not found, the task will fail
+$productReturnOnUserDisable = $true # If True the product will be returned when the user owning the product gets disabled
 
 $removeProduct = $true # If False product will be disabled
 $overwriteExistingProduct = $false # If True existing product will be overwritten with the input from this script (e.g. the, description, approval worklow or icon). Only use this when you actually changed the product input
 $overwriteExistingProductAction = $false  # If True existing product actions will be overwritten with the input from this script. Only use this when you actually changed the script or variables for the action(s)
 $addMissingProductAction = $false # If True missing product actions (according to the the input from this script) will be added
+
+$removeProduct = $true # If False product will be disabled
+$overwriteExistingProduct = $true # If True existing product will be overwritten with the input from this script (e.g. the approval worklow or icon). Only use this when you actually changed the product input
+# Note: Actions are always overwritten, no compare takes place between the current actions and the actions this sync would set
+$overwriteAccessGroup = $false # Should be on false by default, only set this to true to overwrite product access group - Only meant for "manual" bulk update, not daily scheduled
+# Note: Access group is always overwritten, no compare takes place between the current access group and the access group this sync would set
 
 #Target System Configuration
 # Dynamic property invocation
@@ -51,8 +60,6 @@ $addMissingProductAction = $false # If True missing product actions (according t
 $ProductSkuPrefix = "AADGRP"
 # The value of the property will be used as HelloID Self service Product SKU
 $azureADGroupUniqueProperty = "id"
-# The value of the property will be used as variable for the user in the add and remove user to group tasks
-$taskVariableUserValue = "{{requester.immutableId}}" # Note, only works for Azure AD synced users. Example for local AD synced users: "{{request.requestedFor.userAttributes.userprincipalname}}"
 
 #region functions
 function Resolve-HTTPError {
@@ -260,27 +267,22 @@ function New-AuthorizationHeaders {
 
 #region HelloId_Actions_Variables
 #region Add AzureAD user to Group script
-$addAzureADUserToAzureADGroupScript = @'
-#####################################################
-# HelloID-SA-Add-AzureAD-User-To-Group
-#
-# Version: 1.0.0.0
-#####################################################
-$VerbosePreference = 'SilentlyContinue'
-$informationPreference = 'Continue'
-$WarningPreference = 'Continue'
+<# First use a double-quoted here-string, where variables are replaced by their values here string (to be able to use a variable) #>
+$addAzureADUserToAzureADGroupScript = @"
+`$group = [Guid]::New((`$product.code.replace("$ProductSkuPrefix","")))
+
+"@
+<# Then use a single-quoted here-string, where variables are interpreted literally and reproduced exactly #> 
+$addAzureADUserToAzureADGroupScript = $addAzureADUserToAzureADGroupScript + @'
+$user = $request.requestedFor.userName
 
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
 
-# Required input paramaters
-# MSGraphBaseUri - Fixed value, is always: https://graph.microsoft.com/
-# AzureADtenantID
-# AzureADAppId
-# AzureADAppSecret
-# User - can be either the UserPrincipalName or the User ID
-# GroupId - Can only be the Group ID
-$requiredFields = @('MSGraphBaseUri','AzureADtenantID','AzureADAppId','AzureADAppSecret','User','GroupId')
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
 
 # Used to connect to Microsoft Graph API
 $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
@@ -289,10 +291,6 @@ $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
 # $AzureADTenantID = "<Azure AD Tenant ID>" # Set from Global Variable
 # $AzureADAppId = "<Azure AD App ID>" # Set from Global Variable
 # $AzureADAppSecret = "<Azure AD App Secret>" # Set from Global Variable
-
-# Set from Action variable
-# $User = "<Azure User ID or UPN>" # Set from Action Variable
-# $GroupId = "<Azure Group ID" # Set from Action Variable
 
 #region functions
 function Resolve-HTTPError {
@@ -313,7 +311,6 @@ function Resolve-HTTPError {
         }
 
         if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
-            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls
             $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
 
         }
@@ -444,342 +441,6 @@ function Resolve-MicrosoftGraphAPIErrorMessage {
     }
 }
 #endregion functions
-
-# Check if required fields are available
-$requiredFieldsMissing = $false
-$missingFields = [System.Collections.ArrayList]@()
-foreach ($requiredField in $requiredFields) {
-    if (-not(Test-Path variable:$requiredField)) {
-        $requiredFieldsMissing = $true
-        [void]$missingFields.Add($requiredField)
-        Write-Warning "Required field [$requiredField] is missing"
-    }elseif ([String]::IsNullOrEmpty($requiredField)) {
-        $requiredFieldsMissing = $true
-        [void]$missingFields.Add($requiredField)
-        Write-Warning "Required field [$requiredField] has a null or empty value"
-    }
-}
-if ($requiredFieldsMissing -eq $true) {
-    throw "Required fields missing, cannot continue. Missing fields: [$($missingFields -Join ', ')]"
-}
-
-try {
-    $headers = New-AuthorizationHeaders -TenantId $AzureADTenantID -ClientId $AzureADAppId -ClientSecret $AzureADAppSecret
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error creating authorization headers. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-
-# Query Azure AD user (to use object in further actions)
-try {
-    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADUserSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/users/$($User)"
-        Headers     = $headers
-        Method      = 'GET'
-        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
-    }
-
-    Write-Verbose "Querying Azure AD user [$($User)]"
-
-    $azureAdUser = Invoke-RestMethod @queryAzureADUserSplatParams -Verbose:$false
-  
-    # Check result count, and throw error when no results are found.
-    if (($azureAdUser | Measure-Object).Count -eq 0) {
-        throw "Azure AD user [$($User)] not found"
-    }
-
-    Write-Information "Successfully queried Azure AD user [$($User)]. Name: [$($azureAdUser.displayName)], UserPrincipalName: [$($azureAdUser.userPrincipalName)], ID: [$($azureAdUser.id)]"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error querying Azure AD user [$($User)]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-
-# Query Azure AD group (to use object in further actions)
-try {
-    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADGroupSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($GroupId)"
-        Headers     = $headers
-        Method      = 'GET'
-        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
-    }
-
-    Write-Verbose "Querying Azure AD group [$($GroupId)]"
-
-    $azureAdGroup = Invoke-RestMethod @queryAzureADGroupSplatParams -Verbose:$false
-  
-    # Check result count, and throw error when no results are found.
-    if (($azureAdGroup | Measure-Object).Count -eq 0) {
-        throw "Azure AD group [$($GroupId)] not found"
-    }
-
-    Write-Information "Successfully queried Azure AD group [$($GroupId)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error querying Azure AD group [$($GroupId)]. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-
-# Add Azure AD user to Azure AD group
-try {
-    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0&tabs=http
-    $body = [PSCustomObject]@{
-        "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($azureAdUser.id)"
-    } | ConvertTo-Json -Depth 10
-
-    $addAzureADMemberToGroupSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($azureAdGroup.id)/members/`$ref"
-        Headers     = $headers
-        Method      = 'POST'
-        Body        = ([System.Text.Encoding]::UTF8.GetBytes($body))
-        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
-    }
-
-    Write-Verbose "Adding Azure AD user [$($azureAdUser.id)] to Azure AD group [$($azureAdGroup.id)]"
-
-    $addAzureADMemberToGroup = Invoke-RestMethod @addAzureADMemberToGroupSplatParams -Verbose:$false
-
-    Hid-Write-Status -Event Success -Message "Successfully added Azure AD user [$($azureAdUser.id) ($($($azureAdUser.displayName)))] to Azure AD group [$($azureAdGroup.id) ($($($azureAdGroup.displayName)))]"
-    Hid-Write-Summary -Event Success -Message "Successfully added Azure AD user [$($azureAdUser.id)] to Azure AD group [$($azureAdGroup.id)]"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    # Since the error message for adding a user that is already member is a 400 (bad request), we cannot check on a code or type
-    # this may result in an incorrect check when the error messages are in any other language than english, please change this accordingly
-    if ($errorMessage.auditErrorMessage -like "*One or more added object references already exist for the following modified properties*") {
-        Hid-Write-Status -Event Success -Message "Azure AD user [$($azureAdUser.id) ($($($azureAdUser.displayName)))] is already member of Azure AD group [$($azureAdGroup.id) ($($($azureAdGroup.displayName)))]"
-        Hid-Write-Summary -Event Success -Message "Azure AD user [$($azureAdUser.id)] is already member of Azure AD group [$($azureAdGroup.id)]"
-    }
-    else {
-        throw "Error adding Azure AD user [$($azureAdUser.id)] to Azure AD group [$($azureAdGroup.id)]. Error Message: $($errorMessage.AuditErrorMessage)"
-    }
-}
-'@
-#endregion Add AzureAD user to Group script
-#region Remove AzureAD user from Group script
-$removeAzureADUserFromAzureADGroupScript = @'
-#####################################################
-# HelloID-SA-Remove-AzureAD-User-From-Group
-#
-# Version: 1.0.0.0
-#####################################################
-$VerbosePreference = 'SilentlyContinue'
-$informationPreference = 'Continue'
-$WarningPreference = 'Continue'
-
-# Set TLS to accept TLS, TLS 1.1 and TLS 1.2
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
-
-# Required input paramaters
-# MSGraphBaseUri - Fixed value, is always: https://graph.microsoft.com/
-# AzureADtenantID
-# AzureADAppId
-# AzureADAppSecret
-# User - can be either the UserPrincipalName or the User ID
-# GroupId - Can only be the Group ID
-$requiredFields = @('MSGraphBaseUri','AzureADtenantID','AzureADAppId','AzureADAppSecret','User','GroupId')
-
-# Used to connect to Microsoft Graph API
-$MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
-
-# Set from Global Variable
-# $AzureADTenantID = "<Azure AD Tenant ID>" # Set from Global Variable
-# $AzureADAppId = "<Azure AD App ID>" # Set from Global Variable
-# $AzureADAppSecret = "<Azure AD App Secret>" # Set from Global Variable
-
-# Set from Action variable
-# $User = "<Azure User ID or UPN>" # Set from Action Variable
-# $GroupId = "<Azure Group ID" # Set from Action Variable
-
-
-#region functions
-function Resolve-HTTPError {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        $httpErrorObj = [PSCustomObject]@{
-            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId
-            MyCommand             = $ErrorObject.InvocationInfo.MyCommand
-            RequestUri            = $ErrorObject.TargetObject.RequestUri
-            ScriptStackTrace      = $ErrorObject.ScriptStackTrace
-            ErrorMessage          = ''
-        }
-
-        if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
-            # $httpErrorObj.ErrorMessage = $ErrorObject.ErrorDetails.Message # Does not show the correct error message for the Raet IAM API calls
-            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
-
-        }
-        elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
-            $httpErrorObj.ErrorMessage = [System.IO.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
-        }
-
-        Write-Output $httpErrorObj
-    }
-}
-
-function Get-ErrorMessage {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        $errorMessage = [PSCustomObject]@{
-            VerboseErrorMessage = $null
-            AuditErrorMessage   = $null
-        }
-
-        if ( $($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or $($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException')) {
-            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject
-
-            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage
-
-            $errorMessage.AuditErrorMessage = Resolve-MicrosoftGraphAPIErrorMessage -ErrorObject $httpErrorObject.ErrorMessage
-        }
-
-        # If error message empty, fall back on $ex.Exception.Message
-        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {
-            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message
-        }
-        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {
-            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message
-        }
-
-        Write-Output $errorMessage
-    }
-}
-
-function New-AuthorizationHeaders {
-    [CmdletBinding()]
-    [OutputType([System.Collections.Generic.Dictionary[[String], [String]]])]
-    param(
-        [parameter(Mandatory)]
-        [string]
-        $TenantId,
-
-        [parameter(Mandatory)]
-        [string]
-        $ClientId,
-
-        [parameter(Mandatory)]
-        [string]
-        $ClientSecret
-    )
-    try {
-        Write-Verbose "Creating Access Token"
-        $authUri = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
-    
-        $body = @{
-            grant_type    = "client_credentials"
-            client_id     = "$ClientId"
-            client_secret = "$ClientSecret"
-            resource      = "https://graph.microsoft.com"
-        }
-    
-        $Response = Invoke-RestMethod -Method POST -Uri $authUri -Body $body -ContentType 'application/x-www-form-urlencoded'
-        $accessToken = $Response.access_token
-    
-        #Add the authorization header to the request
-        Write-Verbose 'Adding Authorization headers'
-
-        $headers = [System.Collections.Generic.Dictionary[[String], [String]]]::new()
-        $headers.Add('Authorization', "Bearer $accesstoken")
-        $headers.Add('Accept', 'application/json')
-        $headers.Add('Content-Type', 'application/json')
-        # Needed to filter on specific attributes (https://docs.microsoft.com/en-us/graph/aad-advanced-queries)
-        $headers.Add('ConsistencyLevel', 'eventual')
-
-        Write-Output $headers  
-    }
-    catch {
-        throw $_
-    }
-}
-
-function Resolve-MicrosoftGraphAPIErrorMessage {
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory,
-            ValueFromPipeline
-        )]
-        [object]$ErrorObject
-    )
-    process {
-        try {
-            $errorObjectConverted = $ErrorObject | ConvertFrom-Json -ErrorAction Stop
-
-            if ($null -ne $errorObjectConverted.error_description) {
-                $errorMessage = $errorObjectConverted.error_description
-            }
-            elseif ($null -ne $errorObjectConverted.error) {
-                if ($null -ne $errorObjectConverted.error.message) {
-                    $errorMessage = $errorObjectConverted.error.message
-                    if ($null -ne $errorObjectConverted.error.code) { 
-                        $errorMessage = $errorMessage + " Error code: $($errorObjectConverted.error.code)"
-                    }
-                }
-                else {
-                    $errorMessage = $errorObjectConverted.error
-                }
-            }
-            else {
-                $errorMessage = $ErrorObject
-            }
-        }
-        catch {
-            $errorMessage = $ErrorObject
-        }
-
-        Write-Output $errorMessage
-    }
-}
-#endregion functions
-
-# Check if required fields are available
-$requiredFieldsMissing = $false
-$missingFields = [System.Collections.ArrayList]@()
-foreach ($requiredField in $requiredFields) {
-    if (-not(Test-Path variable:$requiredField)) {
-        $requiredFieldsMissing = $true
-        [void]$missingFields.Add($requiredField)
-        Write-Warning "Required field [$requiredField] is missing"
-    }elseif ([String]::IsNullOrEmpty($requiredField)) {
-        $requiredFieldsMissing = $true
-        [void]$missingFields.Add($requiredField)
-        Write-Warning "Required field [$requiredField] has a null or empty value"
-    }
-}
-if ($requiredFieldsMissing -eq $true) {
-    throw "Required fields missing, cannot continue. Missing fields: [$($missingFields -Join ', ')]"
-}
-
 try {
     $headers = New-AuthorizationHeaders -TenantId $AzureADTenantID -ClientId $AzureADAppId -ClientSecret $AzureADAppSecret
 }
@@ -826,22 +487,22 @@ catch {
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http
     $queryAzureADGroupSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($groupId)"
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($group)"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Querying Azure AD group [$($groupId)]"
+    Write-Verbose "Querying Azure AD group [$($group)]"
 
     $azureAdGroup = Invoke-RestMethod @queryAzureADGroupSplatParams -Verbose:$false
   
     # Check result count, and throw error when no results are found.
     if (($azureAdGroup | Measure-Object).Count -eq 0) {
-        throw "Azure AD group [$($groupId)] not found"
+        throw "Azure AD group [$($group)] not found"
     }
 
-    Write-Information "Successfully queried Azure AD group [$($groupId)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
+    Write-Information "Successfully queried Azure AD group [$($group)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
 }
 catch {
     $ex = $PSItem
@@ -849,7 +510,322 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD group [$($groupId)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Azure AD group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
+}
+
+# Add Azure AD user to Azure AD group
+try {
+    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0&tabs=http
+    $body = [PSCustomObject]@{
+        "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($azureAdUser.id)"
+    } | ConvertTo-Json -Depth 10
+
+    $addAzureADMemberToGroupSplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($azureAdGroup.id)/members/`$ref"
+        Headers     = $headers
+        Method      = 'POST'
+        Body        = ([System.Text.Encoding]::UTF8.GetBytes($body))
+        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
+    }
+
+    Write-Verbose "Adding Azure AD user [$($azureAdUser.id)] to Azure AD group [$($azureAdGroup.id)]"
+
+    $addAzureADMemberToGroup = Invoke-RestMethod @addAzureADMemberToGroupSplatParams -Verbose:$false
+
+    $Log = @{
+        Action            = "GrantMembership" # optional. ENUM (undefined = default) 
+        System            = "AzureActiveDirectory" # optional (free format text) 
+        Message           = "Successfully added Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+        TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+        TargetIdentifier  = $azureAdUser.id # optional (free format text)
+    }
+    #send result back  
+    Write-Information -Tags "Audit" -MessageData $log
+}
+catch {
+    $ex = $PSItem
+    $errorMessage = Get-ErrorMessage -ErrorObject $ex
+
+    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+
+    # Since the error message for adding a user that is already member is a 400 (bad request), we cannot check on a code or type
+    # this may result in an incorrect check when the error messages are in any other language than english, please change this accordingly
+    if ($errorMessage.auditErrorMessage -like "*One or more added object references already exist for the following modified properties*") {
+        $Log = @{
+            Action            = "GrantMembership" # optional. ENUM (undefined = default) 
+            System            = "AzureActiveDirectory" # optional (free format text) 
+            Message           = "Azure AD user [$($azureAdUser.displayName)] is already a member of Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        }
+        #send result back  
+        Write-Information -Tags "Audit" -MessageData $log
+    }
+    else {
+        $Log = @{
+            Action            = "GrantMembership" # optional. ENUM (undefined = default) 
+            System            = "AzureActiveDirectory" # optional (free format text) 
+            Message           = "Error adding Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
+            IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        }
+        #send result back  
+        Write-Information -Tags "Audit" -MessageData $log
+        
+        throw "Error adding Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    }
+}
+'@
+#endregion Add AzureAD user to Group script
+
+#region Remove AzureAD user from Group script
+<# First use a double-quoted here-string, where variables are replaced by their values here string (to be able to use a variable) #>
+$removeAzureADUserFromAzureADGroupScript = @"
+`$group = [Guid]::New((`$product.code.replace("$ProductSkuPrefix","")))
+
+"@
+<# Then use a single-quoted here-string, where variables are interpreted literally and reproduced exactly #> 
+$removeAzureADUserFromAzureADGroupScript = $removeAzureADUserFromAzureADGroupScript + @'
+$user = $request.requestedFor.userName
+
+# Set TLS to accept TLS, TLS 1.1 and TLS 1.2
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
+# Set debug logging
+$VerbosePreference = "SilentlyContinue"
+$InformationPreference = "Continue"
+$WarningPreference = "Continue"
+
+# Used to connect to Microsoft Graph API
+$MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
+
+# Set from Global Variable
+# $AzureADTenantID = "<Azure AD Tenant ID>" # Set from Global Variable
+# $AzureADAppId = "<Azure AD App ID>" # Set from Global Variable
+# $AzureADAppSecret = "<Azure AD App Secret>" # Set from Global Variable
+
+#region functions
+function Resolve-HTTPError {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,
+            ValueFromPipeline
+        )]
+        [object]$ErrorObject
+    )
+    process {
+        $httpErrorObj = [PSCustomObject]@{
+            FullyQualifiedErrorId = $ErrorObject.FullyQualifiedErrorId
+            MyCommand             = $ErrorObject.InvocationInfo.MyCommand
+            RequestUri            = $ErrorObject.TargetObject.RequestUri
+            ScriptStackTrace      = $ErrorObject.ScriptStackTrace
+            ErrorMessage          = ''
+        }
+
+        if ($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') {
+            $httpErrorObj.ErrorMessage = $ErrorObject.Exception.Message
+
+        }
+        elseif ($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException') {
+            $httpErrorObj.ErrorMessage = [System.IO.StreamReader]::new($ErrorObject.Exception.Response.GetResponseStream()).ReadToEnd()
+        }
+
+        Write-Output $httpErrorObj
+    }
+}
+
+function Get-ErrorMessage {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,
+            ValueFromPipeline
+        )]
+        [object]$ErrorObject
+    )
+    process {
+        $errorMessage = [PSCustomObject]@{
+            VerboseErrorMessage = $null
+            AuditErrorMessage   = $null
+        }
+
+        if ( $($ErrorObject.Exception.GetType().FullName -eq 'Microsoft.PowerShell.Commands.HttpResponseException') -or $($ErrorObject.Exception.GetType().FullName -eq 'System.Net.WebException')) {
+            $httpErrorObject = Resolve-HTTPError -Error $ErrorObject
+
+            $errorMessage.VerboseErrorMessage = $httpErrorObject.ErrorMessage
+
+            $errorMessage.AuditErrorMessage = Resolve-MicrosoftGraphAPIErrorMessage -ErrorObject $httpErrorObject.ErrorMessage
+        }
+
+        # If error message empty, fall back on $ex.Exception.Message
+        if ([String]::IsNullOrEmpty($errorMessage.VerboseErrorMessage)) {
+            $errorMessage.VerboseErrorMessage = $ErrorObject.Exception.Message
+        }
+        if ([String]::IsNullOrEmpty($errorMessage.AuditErrorMessage)) {
+            $errorMessage.AuditErrorMessage = $ErrorObject.Exception.Message
+        }
+
+        Write-Output $errorMessage
+    }
+}
+
+function New-AuthorizationHeaders {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.Dictionary[[String], [String]]])]
+    param(
+        [parameter(Mandatory)]
+        [string]
+        $TenantId,
+
+        [parameter(Mandatory)]
+        [string]
+        $ClientId,
+
+        [parameter(Mandatory)]
+        [string]
+        $ClientSecret
+    )
+    try {
+        Write-Verbose "Creating Access Token"
+        $authUri = "https://login.microsoftonline.com/$($TenantId)/oauth2/token"
+    
+        $body = @{
+            grant_type    = "client_credentials"
+            client_id     = "$ClientId"
+            client_secret = "$ClientSecret"
+            resource      = "https://graph.microsoft.com"
+        }
+    
+        $Response = Invoke-RestMethod -Method POST -Uri $authUri -Body $body -ContentType 'application/x-www-form-urlencoded'
+        $accessToken = $Response.access_token
+    
+        #Add the authorization header to the request
+        Write-Verbose 'Adding Authorization headers'
+
+        $headers = [System.Collections.Generic.Dictionary[[String], [String]]]::new()
+        $headers.Add('Authorization', "Bearer $accesstoken")
+        $headers.Add('Accept', 'application/json')
+        $headers.Add('Content-Type', 'application/json')
+        # Needed to filter on specific attributes (https://docs.microsoft.com/en-us/graph/aad-advanced-queries)
+        $headers.Add('ConsistencyLevel', 'eventual')
+
+        Write-Output $headers  
+    }
+    catch {
+        throw $_
+    }
+}
+
+function Resolve-MicrosoftGraphAPIErrorMessage {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory,
+            ValueFromPipeline
+        )]
+        [object]$ErrorObject
+    )
+    process {
+        try {
+            $errorObjectConverted = $ErrorObject | ConvertFrom-Json -ErrorAction Stop
+
+            if ($null -ne $errorObjectConverted.error_description) {
+                $errorMessage = $errorObjectConverted.error_description
+            }
+            elseif ($null -ne $errorObjectConverted.error) {
+                if ($null -ne $errorObjectConverted.error.message) {
+                    $errorMessage = $errorObjectConverted.error.message
+                    if ($null -ne $errorObjectConverted.error.code) { 
+                        $errorMessage = $errorMessage + " Error code: $($errorObjectConverted.error.code)"
+                    }
+                }
+                else {
+                    $errorMessage = $errorObjectConverted.error
+                }
+            }
+            else {
+                $errorMessage = $ErrorObject
+            }
+        }
+        catch {
+            $errorMessage = $ErrorObject
+        }
+
+        Write-Output $errorMessage
+    }
+}
+#endregion functions
+try {
+    $headers = New-AuthorizationHeaders -TenantId $AzureADTenantID -ClientId $AzureADAppId -ClientSecret $AzureADAppSecret
+}
+catch {
+    $ex = $PSItem
+    $errorMessage = Get-ErrorMessage -ErrorObject $ex
+
+    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+
+    throw "Error creating authorization headers. Error Message: $($errorMessage.AuditErrorMessage)"
+}
+
+# Query Azure AD user (to use object in further actions)
+try {
+    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0&tabs=http
+    $queryAzureADUserSplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/users/$($user)"
+        Headers     = $headers
+        Method      = 'GET'
+        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
+    }
+
+    Write-Verbose "Querying Azure AD user [$($user)]"
+
+    $azureAdUser = Invoke-RestMethod @queryAzureADUserSplatParams -Verbose:$false
+  
+    # Check result count, and throw error when no results are found.
+    if (($azureAdUser | Measure-Object).Count -eq 0) {
+        throw "Azure AD user [$($user)] not found"
+    }
+
+    Write-Information "Successfully queried Azure AD user [$($user)]. Name: [$($azureAdUser.displayName)], UserPrincipalName: [$($azureAdUser.userPrincipalName)], ID: [$($azureAdUser.id)]"
+}
+catch {
+    $ex = $PSItem
+    $errorMessage = Get-ErrorMessage -ErrorObject $ex
+
+    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+
+    throw "Error querying Azure AD user [$($user)]. Error Message: $($errorMessage.AuditErrorMessage)"
+}
+
+# Query Azure AD group (to use object in further actions)
+try {
+    # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http
+    $queryAzureADGroupSplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($group)"
+        Headers     = $headers
+        Method      = 'GET'
+        ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
+    }
+
+    Write-Verbose "Querying Azure AD group [$($group)]"
+
+    $azureAdGroup = Invoke-RestMethod @queryAzureADGroupSplatParams -Verbose:$false
+  
+    # Check result count, and throw error when no results are found.
+    if (($azureAdGroup | Measure-Object).Count -eq 0) {
+        throw "Azure AD group [$($group)] not found"
+    }
+
+    Write-Information "Successfully queried Azure AD group [$($group)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
+}
+catch {
+    $ex = $PSItem
+    $errorMessage = Get-ErrorMessage -ErrorObject $ex
+
+    Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+
+    throw "Error querying Azure AD group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
 # Remove Azure AD user from Azure AD group
@@ -866,8 +842,16 @@ try {
 
     $removeAzureADMemberToGroup = Invoke-RestMethod @removeAzureADMemberToGroupSplatParams -Verbose:$false
 
-    Hid-Write-Status -Event Success -Message "Successfully removed Azure AD user [$($azureAdUser.id) ($($($azureAdUser.displayName)))] from Azure AD group [$($azureAdGroup.id) ($($($azureAdGroup.displayName)))]"
-    Hid-Write-Summary -Event Success -Message "Successfully removed Azure AD user [$($azureAdUser.id)] from Azure AD group [$($azureAdGroup.id)]"
+    $Log = @{
+        Action            = "RevokeMembership" # optional. ENUM (undefined = default) 
+        System            = "AzureActiveDirectory" # optional (free format text) 
+        Message           = "Successfully removed Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+        IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+        TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+        TargetIdentifier  = $azureAdUser.id # optional (free format text)
+    }
+    #send result back  
+    Write-Information -Tags "Audit" -MessageData $log
 }
 catch {
     $ex = $PSItem
@@ -875,12 +859,33 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    if ($errorMessage.auditErrorMessage -like "*One or more removed object references already exist for the following modified properties*" -or ($errorMessage.auditErrorMessage -like "*Error code: Request_ResourceNotFound*" -and $errorMessage.auditErrorMessage -like "*$($azureAdGroup.id)*")) {
-        Hid-Write-Status -Event Success -Message "Azure AD user [$($azureAdUser.id) ($($($azureAdUser.displayName)))] is already no longer member of Azure AD group [$($azureAdGroup.id) ($($($azureAdGroup.displayName)))]"
-        Hid-Write-Summary -Event Success -Message "Azure AD user [$($azureAdUser.id)] is already no longer member of Azure AD group [$($azureAdGroup.id)]"
+    # Since the error message for adding a user that is already member is a 400 (bad request), we cannot check on a code or type
+    # this may result in an incorrect check when the error messages are in any other language than english, please change this accordingly
+    if ($auditErrorMessage -like "*Error code: Request_ResourceNotFound*" -and $auditErrorMessage -like "*$($azureAdGroup.id)*") {
+        $Log = @{
+            Action            = "RevokeMembership" # optional. ENUM (undefined = default) 
+            System            = "AzureActiveDirectory" # optional (free format text) 
+            Message           = "Azure AD user [$($azureAdUser.displayName)] is already no longer a member of Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+            IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        }
+        #send result back  
+        Write-Information -Tags "Audit" -MessageData $log
     }
     else {
-        throw "Error removing Azure AD user [$($azureAdUser.id)] from Azure AD group [$($azureAdGroup.id)]. Error Message: $($errorMessage.AuditErrorMessage)"
+        $Log = @{
+            Action            = "GrantMembership" # optional. ENUM (undefined = default) 
+            System            = "AzureActiveDirectory" # optional (free format text) 
+            Message           = "Error removing Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
+            IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
+            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
+            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        }
+        #send result back  
+        Write-Information -Tags "Audit" -MessageData $log
+        
+        throw "Error removing Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
     }
 }
 '@
@@ -972,9 +977,6 @@ catch {
 
 Hid-Write-Status -Event Information -Message "------[HelloID]------"
 try {
-    # if ($verboseLogging -eq $true) {
-    #     Hid-Write-Status -Event Information -Message "Querying agent pools from HelloID"
-    # }
 
     $splatParams = @{
         Method = "GET"
@@ -997,10 +999,6 @@ catch {
 }
 
 try {
-    # if ($verboseLogging -eq $true) {
-    #     Hid-Write-Status -Event Information -Message "Querying Self service product categories from HelloID"
-    # }
-
     $splatParams = @{
         Method = "GET"
         Uri    = "selfservice/categories"
@@ -1009,10 +1007,10 @@ try {
 
     # Filter for specified category
     $helloIDSelfserviceCategoriesInScope = $null
-    $helloIDSelfserviceCategoriesInScope = $helloIDSelfserviceCategories | Where-Object { $_.name -eq "$ProductCategory" }
+    $helloIDSelfserviceCategoriesInScope = $helloIDSelfserviceCategories | Where-Object { $_.name -eq "$productCategory" }
 
     if (($helloIDSelfserviceCategoriesInScope | Measure-Object).Count -eq 0) {
-        throw "No HelloID Self service Categories have been found with the name [$ProductCategory]"
+        throw "No HelloID Self service Categories have been found with the name [$productCategory]"
     }
 
     Hid-Write-Status -Event Success -Message "Successfully queried Self service product categories from HelloID (after filtering for specified category). Result count: $(($helloIDSelfserviceCategoriesInScope | Measure-Object).Count)"
@@ -1027,20 +1025,17 @@ catch {
 }
 
 try {
-    # if ($verboseLogging -eq $true) {
-    #     Hid-Write-Status -Event Information -Message "Querying Self service products from HelloID"
-    # }
-
     $splatParams = @{
-        Method = "GET"
-        Uri    = "selfservice/products"
+        Method   = "GET"
+        Uri      = "products"
+        PageSize = 1000
     }
     $helloIDSelfServiceProducts = Invoke-HIDRestMethod @splatParams
 
     # Filter for products with specified Sku Prefix
     if (-not[String]::IsNullOrEmpty($ProductSkuPrefix)) {
         $helloIDSelfServiceProductsInScope = $null
-        $helloIDSelfServiceProductsInScope = $helloIDSelfServiceProducts | Where-Object { $_.code -like "$ProductSkuPrefix*" }
+        $helloIDSelfServiceProductsInScope = $helloIDSelfServiceProducts | Where-Object { $_.code -like "$($ProductSkuPrefix)*" }
     }
     else {
         $helloIDSelfServiceProductsInScope = $null
@@ -1060,37 +1055,6 @@ catch {
 }
 
 try {
-    # if ($verboseLogging -eq $true) {
-    #     Hid-Write-Status -Event Information -Message "Querying Self service product actions from HelloID"
-    # }
-
-    $splatParams = @{
-        Method   = "GET"
-        Uri      = "selfservice/actions"
-        PageSize = 1000
-    }
-    $helloIDSelfServiceProductActions = Invoke-HIDRestMethod @splatParams
-
-    $helloIDSelfServiceProductActionsInScope = $null
-    $helloIDSelfServiceProductActionsInScope = $helloIDSelfServiceProductActions
-
-    $helloIDSelfServiceProductActionsInScopeGrouped = $helloIDSelfServiceProductActionsInScope | Group-Object -Property "objectGuid" -AsHashTable -AsString
-    Hid-Write-Status -Event Success -Message "Successfully queried Self service product actions from HelloID. Result count: $(($helloIDSelfServiceProductActionsInScope | Measure-Object).Count)"
-}
-catch {
-    $ex = $PSItem
-    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-
-    Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-
-    throw "Error querying Self service product actions from HelloID. Error Message: $($errorMessage.AuditErrorMessage)"
-}
-
-try {
-    # if ($verboseLogging -eq $true) {
-    #     Hid-Write-Status -Event Information -Message "Querying Groups from HelloID"
-    # }
-
     $splatParams = @{
         Method   = "GET"
         Uri      = "groups"
@@ -1101,14 +1065,12 @@ try {
     $helloIDGroupsInScope = $null
     $helloIDGroupsInScope = $helloIDGroups 
 
-    $helloIDGroupsInScopeGroupedByName = $helloIDGroupsInScope | Group-Object -Property "name" -AsHashTable -AsString
-    
     $helloIDGroupsInScope | Add-Member -MemberType NoteProperty -Name SourceAndName -Value $null
     $helloIDGroupsInScope | ForEach-Object {
         if ([string]::IsNullOrEmpty($_.source)) {
-            $_.source = "local"
+            $_.source = "Local"
         }
-        $_.SourceAndName = "$($_.source)\$($_.name)"
+        $_.SourceAndName = "$($_.source)/$($_.name)"
     }
     $helloIDGroupsInScopeGroupedBySourceAndName = $helloIDGroupsInScope | Group-Object -Property "SourceAndName" -AsHashTable -AsString
     Hid-Write-Status -Event Success -Message "Successfully queried Groups from HelloID. Result count: $(($helloIDGroupsInScope | Measure-Object).Count)"
@@ -1129,85 +1091,161 @@ try {
     $productObjects = [System.Collections.ArrayList]@()
     foreach ($azureADGroupInScope in $azureADGroupsInScope) {
         # Define ManagedBy Group
-        $ManagedByGroupName = if ([string]::IsNullOrWhiteSpace($SAProductResourceOwner) ) { "$($azureADGroupInScope.displayName) Resource Owners" } else { $SAProductResourceOwner }
+        if ( $calculateProductResourceOwnerPrefixSuffix -eq $true ) {
+            # Calculate resource owner group by specfied prefix or suffix
+            if (-not[string]::IsNullOrEmpty($($calculatedResourceOwnerGroupPrefix)) -or -not[string]::IsNullOrEmpty($($calculatedResourceOwnerGroupSuffix))) {
+                $resourceOwnerGroupName = "$($calculatedResourceOwnerGroupSource)/" + "$($calculatedResourceOwnerGroupPrefix)" + "$($azureADGroupInScope.DisplayName)" + "$($calculatedResourceOwnerGroupSuffix)"
+            }
+            elseif ([string]::IsNullOrEmpty($($calculatedResourceOwnerGroupPrefix)) -and [string]::IsNullOrEmpty($($calculatedResourceOwnerGroupSuffix))) {
+                $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourseOwner) ) { "Local/$($azureADGroupInScope.DisplayName) Resource Owners" } else { $productResourseOwner }
+                if ($verboseLogging -eq $true) {
+                    Hid-Write-Status -Event Warning "No Resource Owner Group Prefix of Suffix specified. Using default resource owner group [$($resourceOwnerGroupName)]"
+                }
+            }
+        }
+        else {
+            $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourseOwner) ) { "Local/$($azureADGroupInScope.DisplayName) Resource Owners" } else { $productResourseOwner }
+        }
+
+        # Get HelloID Resource Owner Group and create if it doesn't exist
+        $helloIDResourceOwnerGroup = $null
+        if (-not[string]::IsNullOrEmpty($resourceOwnerGroupName)) {
+            $helloIDResourceOwnerGroup = $helloIDGroupsInScopeGroupedBySourceAndName["$($resourceOwnerGroupName)"]
+            if ($null -eq $helloIDResourceOwnerGroup) {
+                # Only create group if it's a Local group (otherwise sync should handle this)
+                if ($resourceOwnerGroupName -like "Local/*") {
+                    # Create HelloID Resource Owner Group
+                    try {                       
+                        $helloIDGroupBody = @{
+                            Name      = "$($resourceOwnerGroupName.split("/")[-1])"
+                            IsEnabled = $true
+                            Source    = "Local"
+                        }
+
+                        $splatParams = @{
+                            Method = "POST"
+                            Uri    = "groups"
+                            Body   = ($helloIDGroupBody | ConvertTo-Json -Depth 10)
+                        }
+
+                        if ($dryRun -eq $false) {
+                            $helloIDResourceOwnerGroup = Invoke-HIDRestMethod @splatParams
+        
+                            if ($verboseLogging -eq $true) {
+                                Hid-Write-Status -Event Success "Successfully created new resource owner group [$($resourceOwnerGroupName)] for HelloID Self service Product [$($newProduct.Name)]"
+                            }
+                        }
+                        else {
+                            if ($verboseLogging -eq $true) {
+                                Hid-Write-Status -Event Warning "DryRun: Would create new resource owner group [$($resourceOwnerGroupName)] for HelloID Self service Product [$($newProduct.Name)]"
+                            }
+                        }
+                    }
+                    catch {
+                        $ex = $PSItem
+                        $errorMessage = Get-ErrorMessage -ErrorObject $ex
+                        
+                        Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+                        
+                        throw "Error creating new resource owner group [$($resourceOwnerGroupName)] for HelloID Self service Product [$($newProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
+                    }
+                }
+                else {
+                    if ($verboseLogging -eq $true) {
+                        Hid-Write-Status -Event Warning "No resource owner group [$($resourceOwnerGroupName)] found for HelloID Self service Product [$($newProduct.Name)]"
+                    }
+                }
+            }
+        }
 
         # Define actions for product
-        $PowerShellActions = [System.Collections.Generic.list[object]]@()
+        #region Define On Request actions
+        $onRequestActions = [System.Collections.Generic.list[object]]@()
+        #endregion Define On Request actions
 
-        # Define action to Add Azure AD user to Azure AD group
-        $addAzureADUserToAzureADGroupAction = [PSCustomObject]@{
-            name                = "Add-AzureADUserToAzureADGroup"
-            automationContainer = 2
-            objectGUID          = $null
-            metaData            = "{`"executeOnState`":3}"
-            useTemplate         = $false
-            powerShellScript    = $addAzureADUserToAzureADGroupScript
-            variables           = @(
-                @{
-                    "name"           = "GroupId"
-                    "value"          = "$($azureADGroupInScope.id)"
-                    "typeConstraint" = "string"
-                    "secure"         = $false
-                },
-                @{
-                    "name"           = "User"
-                    "value"          = "$taskVariableUserValue"
-                    "typeConstraint" = "string"
-                    "secure"         = $false
-                }
-            )
-        }
-        [void]$PowerShellActions.Add($addAzureADUserToAzureADGroupAction)
+        #region Define On Approve actions
+        $onApproveActions = [System.Collections.Generic.list[object]]@()
 
-        # Define action to Remove Azure AD user from Azure AD group
-        $removeAzureADUserFromAzureADGroupAction = [PSCustomObject]@{
-            name                = "Remove-AzureADUserFromAzureADGroup"
-            automationContainer = 2
-            objectGUID          = $null
-            metaData            = "{`"executeOnState`":11}"
-            useTemplate         = $false
-            powerShellScript    = $removeAzureADUserFromAzureADGroupScript
-            variables           = @(
-                @{
-                    "name"           = "GroupId"
-                    "value"          = "$($azureADGroupInScope.id)"
-                    "typeConstraint" = "string"
-                    "secure"         = $false
-                },
-                @{
-                    "name"           = "User"
-                    "value"          = "$taskVariableUserValue"
-                    "typeConstraint" = "string"
-                    "secure"         = $false
-                }
-            )
-        }
-        [void]$PowerShellActions.Add($removeAzureADUserFromAzureADGroupAction)        
+        # Add action to Add Azure AD user to Azure AD Group
+        [void]$onApproveActions.Add([PSCustomObject]@{
+                id          = "" # supplying an id when creating a product action is not supported. You have to leave the 'id' property empty or leave the property out alltogether when creating a new product action
+                name        = "Add-AzureADUserToAzureADGroup"
+                script      = $addAzureADUserToAzureADGroupScript
+                agentPoolId = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
+                runInCloud  = $false
+            })
+        #endregion Define On Approve actions
+
+        #region Define On Deny actions
+        $onDenyActions = [System.Collections.Generic.list[object]]@()
+        #endregion Define On Deny actions
+
+        #region Define On Return actions
+        $onReturnActions = [System.Collections.Generic.list[object]]@()
+
+        # Add action to Remove Azure AD user from Azure AD Group
+        [void]$onReturnActions.Add([PSCustomObject]@{
+                id          = "" # supplying an id when creating a product action is not supported. You have to leave the 'id' property empty or leave the property out alltogether when creating a new product action
+                name        = "Remove-AzureADUserFromAzureADGroup"
+                script      = $removeAzureADUserFromAzureADGroupScript
+                agentPoolId = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
+                runInCloud  = $false
+            })
+
+        #endregion Define On Return actions
+
+        #region Define On Withdrawn actions
+        $onWithdrawnActions = [System.Collections.Generic.list[object]]@()
+        #endregion Define On Withdrawn actions
 
         $productObject = [PSCustomObject]@{
-            Name                       = "$($azureADGroupInScope.description)"
-            Description                = "Access to the group $($azureADGroupInScope.displayName)"
-            Categories                 = @($helloIDSelfserviceCategoriesInScope.name)
-            ApprovalWorkflowName       = $SAProductWorkflow
-            AgentPoolGUID              = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
-            Icon                       = $null
-            FaIcon                     = "fa-$FaIcon"
-            UseFaIcon                  = $true
-            IsAutoApprove              = $false
-            IsAutoDeny                 = $false
-            MultipleRequestOption      = $multipleRequestOption
-            HasTimeLimit               = $false
-            LimitType                  = "Fixed"
-            ManagerCanOverrideDuration = $true
-            ReminderTimeout            = 30
-            OwnershipMaxDuration       = 90
-            CreateDefaultEmailActions  = $createDefaultEmailActions 
-            Visibility                 = $productVisibility
-            RequestCommentOption       = $productRequestCommentOption
-            ReturnOnUserDisable        = $returnProductOnUserDisable
-            Code                       = ("$($ProductSKUPrefix)" + "$($azureADGroupInScope.$azureADGroupUniqueProperty)").Replace("-", "")
-            ManagedByGroupName         = $ManagedByGroupName
-            PowerShellActions          = $PowerShellActions
+            name                       = "$($azureADGroupInScope.displayName)"
+            description                = "Access to the group $($azureADGroupInScope.displayName)"
+            code                       = ("$($ProductSKUPrefix)" + "$($adGroupInScope.$azureADGroupUniqueProperty)").Replace("-", "")
+            resourceOwnerGroup         = [PSCustomObject]@{
+                id = $helloIDResourceOwnerGroup.groupGuid
+            }
+            approvalWorkflow           = [PSCustomObject]@{
+                id = $productApprovalWorkflowId
+            }
+            showPrice                  = $false
+            price                      = $null
+            visibility                 = $productVisibility
+            requestComment             = $productRequestCommentOption
+            maxCount                   = $null
+            hasRiskFactor              = $false
+            riskFactor                 = 1
+            allowMultipleRequests      = $productAllowMultipleRequests
+            icon                       = $null
+            useFaIcon                  = $true 
+            faIcon                     = "fa-$productFaIcon"
+            categories                 = @(
+                [PSCustomObject]@{
+                    id = "$($helloIDSelfserviceCategoriesInScope.selfServiceCategoryGUID)"
+                }
+            )
+            agentPool                  = [PSCustomObject]@{
+                id = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
+            }
+            returnOnUserDisable        = $productReturnOnUserDisable
+            
+            # Form
+            dynamicForm                = $null
+
+            # Actions
+            onRequest                  = $onRequestActions
+            onApprove                  = $onApproveActions
+            onDeny                     = $onDenyActions
+            onReturn                   = $onReturnActions
+            onWithdrawn                = $onWithdrawnActions
+
+            # Groups - Are set with an additional API call
+            
+            # Time Limit
+            hasTimeLimit               = $false
+            managerCanOverrideDuration = $true
+            limitType                  = "Maximum"
+            ownershipMaxDuration       = 3650
         }
 
         [void]$productObjects.Add($productObject)
@@ -1239,10 +1277,10 @@ catch {
 
 Hid-Write-Status -Event Information -Message "------[Summary]------"
 
-Hid-Write-Status -Event Information -Message "Total Azure Active Directory Group(s) in scope [$(($azureADGroupsInScope | Measure-Object).Count)]"
+Hid-Write-Status -Event Information -Message "Total Azure AD Groups in scope [$(($azureADGroupsInScope | Measure-Object).Count)]"
 
 if ($overwriteExistingProduct -eq $true -or $overwriteExistingProductAction -eq $true -or $addMissingProductAction -eq $true) {
-    Hid-Write-Status -Event Information "Total HelloID Self service Product(s) already exist (and will be updated) [$(($existingProducts | Measure-Object).Count)]. Overwrite Product: [$($overwriteExistingProduct)]. Overwrite Product Action: [$($overwriteExistingProductAction)]. Add Missing Product Action: [$($addMissingProductAction)]"
+    Hid-Write-Status -Event Information "Total HelloID Self service Product(s) already exist (and will be updated) [$(($existingProducts | Measure-Object).Count)]. Overwrite Product: [$($overwriteExistingProduct)]"
 }
 else {
     Hid-Write-Status -Event Information -Message "Total HelloID Self service Product(s) already exist (and won't be changed) [$(($existingProducts | Measure-Object).Count)]"
@@ -1263,74 +1301,19 @@ try {
     $productCreatesError = 0
     foreach ($newProduct in $newProducts) {
         try {
-            # Get HelloID Resource Owner Group and create if it doesn't exist
-            $helloIDResourceOwnerGroup = $null
-            if (-not[string]::IsNullOrEmpty($newProduct.ManagedByGroupName)) {
-                $helloIDResourceOwnerGroup = $helloIDGroupsInScopeGroupedByName[$newProduct.ManagedByGroupName]
-                if ($null -eq $helloIDResourceOwnerGroup ) {
-                    # Create HelloID Resource Owner Group
-                    try {
-                        # if ($verboseLogging -eq $true) {
-                        #     Hid-Write-Status -Event Information "Creating new resource owner group [$($newProduct.ManagedByGroupName)] for HelloID Self service Product [$($newProduct.Name)]"
-                        # }
-                        
-                        $helloIDGroupBody = @{
-                            Name      = "$($newProduct.ManagedByGroupName)"
-                            IsEnabled = $true
-                        }
-
-                        $splatParams = @{
-                            Method = "POST"
-                            Uri    = "groups"
-                            Body   = ($helloIDGroupBody | ConvertTo-Json -Depth 10)
-                        }
-
-                        if ($dryRun -eq $false) {
-                            $helloIDResourceOwnerGroup = Invoke-HIDRestMethod @splatParams
-        
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Success "Successfully created new resource owner group [$($newProduct.ManagedByGroupName)] for HelloID Self service Product [$($newProduct.Name)]"
-                            }
-                        }
-                        else {
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Warning "DryRun: Would create new resource owner group [$($newProduct.ManagedByGroupName)] for HelloID Self service Product [$($newProduct.Name)]"
-                            }
-                        }
-                    }
-                    catch {
-                        $ex = $PSItem
-                        $errorMessage = Get-ErrorMessage -ErrorObject $ex
-                        
-                        Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                        
-                        throw "Error creating new resource owner group [$($newProduct.ManagedByGroupName)] for HelloID Self service Product [$($newProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                    }
-                }
-            }
-
             # Create HelloID Self service Product
             try {
-                # if ($verboseLogging -eq $true) {
-                #     Hid-Write-Status -Event Information "Creating HelloID Self service Product [$($createHelloIDSelfServiceProductBody.Name)]"
-                # }
-
                 # Create custom productbody object
                 $createHelloIDSelfServiceProductBody = [PSCustomObject]@{}
 
-                # Copy product properties into productbody object (all but the properties that aren't supported when creating a HelloID Self service Product)
-                $newProduct.psobject.properties | Where-Object { $_.Name -ne "ManagedByGroupName" -and $_.Name -ne "PowerShellActions" } | ForEach-Object {
+                # Copy product properties into productbody object
+                $newProduct.psobject.properties | ForEach-Object {
                     $createHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
-                }
-
-                # Add ManagedByGroupGUID to product productbody object
-                if (-not[string]::IsNullOrEmpty($helloIDResourceOwnerGroup.groupGuid)) {
-                    $createHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name "ManagedByGroupGUID"-Value $helloIDResourceOwnerGroup.groupGuid
                 }
                 
                 $splatParams = @{
                     Method      = "POST"
-                    Uri         = "selfservice/products"
+                    Uri         = "products"
                     Body        = ($createHelloIDSelfServiceProductBody | ConvertTo-Json -Depth 10)
                     ErrorAction = "Stop"
                 }
@@ -1343,7 +1326,9 @@ try {
                     }
                 }
                 else {
-                    Hid-Write-Status -Event Warning "DryRun: Would create HelloID Self service Product [$($createHelloIDSelfServiceProductBody.name)]"
+                    if ($verboseLogging -eq $true) {
+                        Hid-Write-Status -Event Warning "DryRun: Would create HelloID Self service Product [$($createHelloIDSelfServiceProductBody.name)]"
+                    }
                 }
             }
             catch {
@@ -1357,22 +1342,18 @@ try {
 
             # Get HelloID Access Group
             $helloIDAccessGroup = $null
-            $helloIDAccessGroup = $helloIDGroupsInScopeGroupedBySourceAndName["$($ProductAccessGroup)"]
+            $helloIDAccessGroup = $helloIDGroupsInScopeGroupedBySourceAndName["$($productAccessGroup)"]
 
             # Add HelloID Access Group to HelloID Self service Product
             if (-not $null -eq $helloIDAccessGroup) {
                 try {
-                    # if ($verboseLogging -eq $true) {
-                    #     Hid-Write-Status -Event Information -Message "Adding HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
-                    # }
-
                     $addHelloIDAccessGroupToProductBody = @{
                         GroupGuid = "$($helloIDAccessGroup.groupGuid)"
                     }
 
                     $splatParams = @{
                         Method = "POST"
-                        Uri    = "selfserviceproducts/$($createdHelloIDSelfServiceProduct.selfServiceProductGUID)/groups"
+                        Uri    = "selfserviceproducts/$($createdHelloIDSelfServiceProduct.productId)/groups"
                         Body   = ($addHelloIDAccessGroupToProductBody | ConvertTo-Json -Depth 10)
                     }
 
@@ -1400,57 +1381,9 @@ try {
             }
             else {
                 if ($verboseLogging -eq $true) {
-                    Hid-Write-Status  -Event Warning -Message "The Specified HelloID Access Group [$($helloIDAccessGroup.Name)] does not exist. We will continue without adding the access Group to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
+                    Hid-Write-Status  -Event Warning -Message "The Specified HelloID Access Group [$($productAccessGroup)] does not exist. We will continue without adding the access Group to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
                 }
             }
-
-            # Add Powershell actions to HelloID Self service Product
-            foreach ($PowerShellAction in $newProduct.PowerShellActions) {
-                try {
-                    # if ($verboseLogging -eq $true) {
-                    #     Hid-Write-Status -Event Information -Message "Adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
-                    # }
-                    
-                    # Create custom powershell action body object
-                    $addPowerShellActionBody = [PSCustomObject]@{}
-
-                    # Copy product properties into powershell action body object
-                    $PowerShellAction.psobject.properties | ForEach-Object {
-                        $addPowerShellActionBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
-                    }
-
-                    # Set objectGUID to powershell action body object (without this it wouldn't be linked to the product)
-                    $addPowerShellActionBody.objectGUID = $createdHelloIDSelfServiceProduct.selfServiceProductGUID
-        
-                    $splatParams = @{
-                        Method = "POST"
-                        Uri    = "automationtasks/powershell"
-                        Body   = ($addPowerShellActionBody | ConvertTo-Json -Depth 10)
-                    }
-        
-                    if ($dryRun -eq $false) {
-                        $addPowerShellAction = Invoke-HIDRestMethod @splatParams
-        
-                        if ($verboseLogging -eq $true) {
-                            Hid-Write-Status -Event Success "Successfully added PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
-                        }
-                    }
-                    else {
-                        if ($verboseLogging -eq $true) {
-                            Hid-Write-Status -Event Warning "DryRun: Would add PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
-                        }
-                    }
-                }
-                catch {
-                    $ex = $PSItem
-                    $errorMessage = Get-ErrorMessage -ErrorObject $ex
-                
-                    Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                
-                    throw "Error adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                }
-            }
-
             $productCreatesSuccess++            
         }
         catch {
@@ -1482,13 +1415,9 @@ try {
         if ($removeProduct -eq $true) {
             # Remove HelloID Self service Product
             try {
-                # if ($verboseLogging -eq $true) {
-                #     Hid-Write-Status -Event Information -Message "Removing HelloID Self service Product [$($obsoleteProduct.Name)]"
-                # }
-
                 $splatParams = @{
                     Method = "DELETE"
-                    Uri    = "selfservice/products/$($obsoleteProduct.selfServiceProductGUID)"
+                    Uri    = "products/$($obsoleteProduct.productId)"
                 }
     
                 if ($dryRun -eq $false) {
@@ -1518,24 +1447,20 @@ try {
         else {
             # Disable HelloID Self service Product
             try {
-                # if ($verboseLogging -eq $true) {
-                #     Hid-Write-Status -Event Information -Message "Disabling HelloID Self service Product [$($obsoleteProduct.Name)]"
-                # }
-
                 # Create custom productbody object
                 $disableHelloIDSelfServiceProductBody = [PSCustomObject]@{}
 
                 # Copy product properties into productbody object (all but the properties that aren't supported when updating a HelloID Self service Product)
-                $obsoleteProduct.psobject.properties | Where-Object { $_.Name -ne "Code" } | ForEach-Object {
+                $obsoleteProduct.psobject.properties | ForEach-Object {
                     $disableHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
                 }
 
-                # Set IsEnabled to False in product productbody object
-                $disableHelloIDSelfServiceProductBody.IsEnabled = $false
+                # Set Visibility to Disabled in product productbody object
+                $disableHelloIDSelfServiceProductBody.Visibility = "Disabled"
 
                 $splatParams = @{
                     Method = "POST"
-                    Uri    = "selfservice/products"
+                    Uri    = "products"
                     Body   = ($disableHelloIDSelfServiceProductBody | ConvertTo-Json -Depth 10)
                 }
 
@@ -1562,31 +1487,30 @@ try {
                 $productDisablesError++
                 throw "Error disabling HelloID Self service Product [$($obsoleteProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
             }
-
-            if ($removeProduct -eq $true) {
-                if ($dryRun -eq $false) {
-                    if ($productRemovesSuccess -ge 1 -or $productRemoveserror -ge 1) {
-                        Hid-Write-Status -Event Information -Message "Removed HelloID Self service Products. Success: $($productRemovesSuccess). Error: $($productRemoveserror)"
-                        Hid-Write-Summary -Event Information -Message "Removed HelloID Self service Products. Success: $($productRemovesSuccess). Error: $($productRemoveserror)"
-                    }
-                }
-                else {
-                    Hid-Write-Status -Event Warning -Message "DryRun: Would remove [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
-                    Hid-Write-Status -Event Warning -Message "DryRun: Would remove [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
-                }
+        }
+    }
+    if ($removeProduct -eq $true) {
+        if ($dryRun -eq $false) {
+            if ($productRemovesSuccess -ge 1 -or $productRemoveserror -ge 1) {
+                Hid-Write-Status -Event Information -Message "Removed HelloID Self service Products. Success: $($productRemovesSuccess). Error: $($productRemoveserror)"
+                Hid-Write-Summary -Event Information -Message "Removed HelloID Self service Products. Success: $($productRemovesSuccess). Error: $($productRemoveserror)"
             }
-            else {
-                if ($dryRun -eq $false) {
-                    if ($productDisablesSuccess -ge 1 -or $productDisablesError -ge 1) {
-                        Hid-Write-Status -Event Information -Message "Disabled HelloID Self service Products. Success: $($productDisablesSuccess). Error: $($productDisablesError)"
-                        Hid-Write-Summary -Event Information -Message "Disabled HelloID Self service Products. Success: $($productDisablesSuccess). Error: $($productDisablesError)"
-                    }
-                }
-                else {
-                    Hid-Write-Status -Event Warning -Message "DryRun: Would disable [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
-                    Hid-Write-Status -Event Warning -Message "DryRun: Would disable [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
-                }
+        }
+        else {
+            Hid-Write-Status -Event Warning -Message "DryRun: Would remove [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
+            Hid-Write-Status -Event Warning -Message "DryRun: Would remove [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
+        }
+    }
+    else {
+        if ($dryRun -eq $false) {
+            if ($productDisablesSuccess -ge 1 -or $productDisablesError -ge 1) {
+                Hid-Write-Status -Event Information -Message "Disabled HelloID Self service Products. Success: $($productDisablesSuccess). Error: $($productDisablesError)"
+                Hid-Write-Summary -Event Information -Message "Disabled HelloID Self service Products. Success: $($productDisablesSuccess). Error: $($productDisablesError)"
             }
+        }
+        else {
+            Hid-Write-Status -Event Warning -Message "DryRun: Would disable [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
+            Hid-Write-Status -Event Warning -Message "DryRun: Would disable [$(($obsoleteProducts | Measure-Object).Count)] HelloID Self service Products"
         }
     }
 
@@ -1594,93 +1518,67 @@ try {
     $productUpdatesError = 0
     foreach ($existingProduct in $existingProducts) {
         try {
-            $currentProduct = $null
-            $currentProduct = $helloIDSelfServiceProductsInScopeGrouped[$existingProduct.Code]
+            $currentProductInHelloID = $null
+            $currentProductInHelloID = $helloIDSelfServiceProductsInScopeGrouped[$existingProduct.Code]
+            # Convert collection object to PsCustomObject
+            $currentProductInHelloID = $currentProductInHelloID | Select-Object -Property *
 
-            if ($null -ne $currentProduct -and $overwriteExistingProduct -eq $true) {
-                # Get HelloID Resource Owner Group and create if it doesn't exist
-                if (-not[string]::IsNullOrEmpty($existingProduct.ManagedByGroupName)) {
-                    $helloIDResourceOwnerGroup = $null
-                    $helloIDResourceOwnerGroup = $helloIDGroupsInScopeGroupedByName[$existingProduct.ManagedByGroupName]
-                    if ($null -eq $helloIDResourceOwnerGroup ) {
-                        # Create HelloID Resource Owner Group
-                        try {
-                            # if ($verboseLogging -eq $true) {
-                            #     Hid-Write-Status -Event Information "Creating new resource owner group [$($existingProduct.ManagedByGroupName)] for HelloID Self service Product [$($existingProduct.Name)]"
-                            # }
-                                
-                            $helloIDGroupBody = @{
-                                Name      = "$($existingProduct.ManagedByGroupName)"
-                                IsEnabled = $true
-                            }
-
-                            $splatParams = @{
-                                Method = "POST"
-                                Uri    = "groups"
-                                Body   = ($helloIDGroupBody | ConvertTo-Json -Depth 10)
-                            }
-
-                            if ($dryRun -eq $false) {
-                                $helloIDResourceOwnerGroup = Invoke-HIDRestMethod @splatParams
-                
-                                if ($verboseLogging -eq $true) {
-                                    Hid-Write-Status -Event Success "Successfully created new resource owner group [$($existingProduct.ManagedByGroupName)] for HelloID Self service Product [$($existingProduct.Name)]"
-                                }
-                            }
-                            else {
-                                if ($verboseLogging -eq $true) {
-                                    Hid-Write-Status -Event Warning "DryRun: Would create new resource owner group [$($existingProduct.ManagedByGroupName)] for HelloID Self service Product [$($existingProduct.Name)]"
-                                }
-                            }
-                        }
-                        catch {
-                            $ex = $PSItem
-                            $errorMessage = Get-ErrorMessage -ErrorObject $ex
-                                
-                            Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                                
-                            throw "Error creating new resource owner group [$($existingProduct.ManagedByGroupName)] for HelloID Self service Product [$($existingProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                        }
-                    }
-                }
-
+            if ($null -ne $currentProductInHelloID -and $overwriteExistingProduct -eq $true) {
                 # Update HelloID Self service Product
                 try {
-                    # if ($verboseLogging -eq $true) {
-                    #     Hid-Write-Status -Event Information "Updating HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.Name)]"
-                    # }
-
                     # Create custom productbody object
                     $updateHelloIDSelfServiceProductBody = [PSCustomObject]@{}
 
-                    # Copy product properties into productbody object (all but the properties that aren't supported when updating a HelloID Self service Product)
-                    $existingProduct.psobject.properties | Where-Object { $_.Name -ne "ManagedByGroupName" -and $_.Name -ne "PowerShellActions" -and $_.Name -ne "Code" } | ForEach-Object {
+                    # Copy properties of current product in HelloID into productbody object
+                    $currentProductInHelloID.PSObject.Properties | ForEach-Object {
                         $updateHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
                     }
 
-                    # Add ManagedByGroupGUID to product productbody object
-                    if (-not[string]::IsNullOrEmpty($helloIDResourceOwnerGroup.groupGuid)) {
-                        $updateHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name "ManagedByGroupGUID" -Value $helloIDResourceOwnerGroup.groupGuid
+                    # Calculate changes between current data and provided data
+                    $actionProperties = @("onRequest", "onApprove", "onApprove", "onDeny", "onReturn", "onWithdrawn")
+                    $splatCompareProperties = @{
+                        ReferenceObject  = @($currentProductInHelloID.PSObject.Properties)
+                        DifferenceObject = @($existingProduct.PSObject.Properties | Where-Object { $_.Name -notin $actionProperties }) # exclude the action variables, as aren't in the current product object
                     }
+                    $changedProperties = $null
+                    $changedProperties = (Compare-Object @splatCompareProperties -PassThru)
+                    $newProperties = $changedProperties.Where( { $_.SideIndicator -eq "=>" })
 
-                    # Add SelfServiceProductGUID to product productbody object (without this a new product would be created)
-                    $updateHelloIDSelfServiceProductBody  | Add-Member -MemberType NoteProperty -Name "SelfServiceProductGUID" -Value $currentProduct.selfServiceProductGUID
+                    if (($newProperties | Measure-Object).Count -ge 1) {
+                        foreach ($newProperty in $newProperties) {
+                            $updateHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name $newProperty.Name -Value $newProperty.Value -Force
+                        }
+                        # Always add the product actions, as they aren't in the current product object and otherwise it will be a product without actions
+                        foreach ($actionProperty in $actionProperties) {
+                            $updateHelloIDSelfServiceProductBody | Add-Member -MemberType NoteProperty -Name $actionProperty -Value $existingProduct.$actionProperty -Force
+                        }
 
-                    $splatParams = @{
-                        Method = "POST"
-                        Uri    = "selfservice/products"
-                        Body   = ($updateHelloIDSelfServiceProductBody | ConvertTo-Json -Depth 10)
-                    }
-
-                    if ($dryRun -eq $false) {
-                        $updatedHelloIDSelfServiceProduct = Invoke-HIDRestMethod @splatParams
-
-                        if ($verboseLogging -eq $true) {
-                            Hid-Write-Status -Event Success "Successfully updated HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.Name)]"
+                        $splatParams = @{
+                            Method = "POST"
+                            Uri    = "products"
+                            Body   = ($updateHelloIDSelfServiceProductBody | ConvertTo-Json -Depth 10)
+                        }
+    
+                        if ($dryRun -eq $false) {
+                            $updatedHelloIDSelfServiceProduct = Invoke-HIDRestMethod @splatParams
+    
+                            if ($verboseLogging -eq $true) {
+                                Hid-Write-Status -Event Success "Successfully updated HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.Name)]"
+                            }
+                        }
+                        else {
+                            Hid-Write-Status -Event Warning "DryRun: Would update HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.name)]"
                         }
                     }
                     else {
-                        Hid-Write-Status -Event Warning "DryRun: Would update HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.name)]"
+                        if ($dryRun -eq $false) {
+                            if ($verboseLogging -eq $true) {
+                                Hid-Write-Status -Event Success "No changes to HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.Name)]"
+                            }
+                        }
+                        else {
+                            Hid-Write-Status -Event Warning "DryRun: No changes to HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.Name)]"
+                        }
                     }
                 }
                 catch {
@@ -1692,164 +1590,55 @@ try {
                     throw "Error updating HelloID Self service Product [$($updateHelloIDSelfServiceProductBody.name)]. Error Message: $($errorMessage.AuditErrorMessage)"
                 }
 
-                # Get HelloID Access Group
-                $helloIDAccessGroup = $null
-                $helloIDAccessGroup = $helloIDGroupsInScopeGroupedBySourceAndName["$($ProductAccessGroup)"]
+                if ($overwriteAccessGroup -eq $true) {
+                    # Get HelloID Access Group
+                    $helloIDAccessGroup = $null
+                    $helloIDAccessGroup = $helloIDGroupsInScopeGroupedBySourceAndName["$($productAccessGroup)"]
 
-                # Add HelloID Access Group to HelloID Self service Product
-                if (-not $null -eq $helloIDAccessGroup) {
-                    try {
-                        # if ($verboseLogging -eq $true) {
-                        #     Hid-Write-Status -Event Information -Message "Adding HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($createdHelloIDSelfServiceProduct.Name)]"
-                        # }
+                    # Add HelloID Access Group to HelloID Self service Product
+                    if (-not $null -eq $helloIDAccessGroup) {
+                        try {
+                            $addHelloIDAccessGroupToProductBody = @{
+                                GroupGuid = "$($helloIDAccessGroup.groupGuid)"
+                            }
 
-                        $addHelloIDAccessGroupToProductBody = @{
-                            GroupGuid = "$($helloIDAccessGroup.groupGuid)"
-                        }
+                            $splatParams = @{
+                                Method = "POST"
+                                Uri    = "selfserviceproducts/$($currentProductInHelloID.productId)/groups"
+                                Body   = ($addHelloIDAccessGroupToProductBody | ConvertTo-Json -Depth 10)
+                            }
 
-                        $splatParams = @{
-                            Method = "POST"
-                            Uri    = "selfserviceproducts/$($currentProduct.selfServiceProductGUID)/groups"
-                            Body   = ($addHelloIDAccessGroupToProductBody | ConvertTo-Json -Depth 10)
-                        }
+                            if ($dryRun -eq $false) {
+                                $addHelloIDAccessGroupToProduct = Invoke-HIDRestMethod @splatParams
 
-                        if ($dryRun -eq $false) {
-                            $addHelloIDAccessGroupToProduct = Invoke-HIDRestMethod @splatParams
-
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Success "Successfully added HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
+                                if ($verboseLogging -eq $true) {
+                                    Hid-Write-Status -Event Success "Successfully added HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
+                                }
+                            }
+                            else {
+                                if ($verboseLogging -eq $true) {
+                                    Hid-Write-Status -Event Warning "DryRun: Would add HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
+                                }
                             }
                         }
-                        else {
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Warning "DryRun: Would add HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
-                            }
+                        catch {
+                            $ex = $PSItem
+                            $errorMessage = Get-ErrorMessage -ErrorObject $ex
+                    
+                            Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
+                    
+                            throw "Error adding HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
                         }
                     }
-                    catch {
-                        $ex = $PSItem
-                        $errorMessage = Get-ErrorMessage -ErrorObject $ex
+                    else {
+                        if ($verboseLogging -eq $true) {
+                            Hid-Write-Status  -Event Warning -Message "The Specified HelloID Access Group [$($productAccessGroup)] does not exist. We will continue without adding the access Group to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
+                        }
+                    }
+                }
                 
-                        Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                
-                        throw "Error adding HelloID Access Group [$($helloIDAccessGroup.Name)] to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                    }
-                }
-                else {
-                    if ($verboseLogging -eq $true) {
-                        Hid-Write-Status  -Event Warning -Message "The Specified HelloID Access Group [$($helloIDAccessGroup.Name)] does not exist. We will continue without adding the access Group to HelloID Self service Product [$($updatedHelloIDSelfServiceProduct.Name)]"
-                    }
-                }
+                $productUpdatesSuccess++
             }
-
-            # Get current prduct actions
-            $currentProductActions = $null
-            $currentProductActions = $helloIDSelfServiceProductActionsInScopeGrouped[$($currentProduct.selfServiceProductGUID)]
-
-            if ($addMissingProductAction -eq $true) {
-                # Add Powershell actions to HelloID Self service Product
-                foreach ($PowerShellAction in ($existingProduct.PowerShellActions | Where-Object { $_.Name -notin $currentProductActions.Name })) {
-                    try {
-                        # if ($verboseLogging -eq $true) {
-                        #     Hid-Write-Status -Event Information -Message "Adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                        # }
-                        
-                        # Create custom powershell action body object
-                        $addPowerShellActionBody = [PSCustomObject]@{}
-
-                        # Copy product properties into powershell action body object
-                        $PowerShellAction.psobject.properties | ForEach-Object {
-                            $addPowerShellActionBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
-                        }
-
-                        # Set objectGUID to powershell action body object (without this it wouldn't be linked to the product)
-                        $addPowerShellActionBody.objectGUID = $currentProduct.selfServiceProductGUID
-
-                        $splatParams = @{
-                            Method = "POST"
-                            Uri    = "automationtasks/powershell"
-                            Body   = ($addPowerShellActionBody | ConvertTo-Json -Depth 10)
-                        }
-            
-                        if ($dryRun -eq $false) {
-                            $addPowerShellAction = Invoke-HIDRestMethod @splatParams
-
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Success "Successfully added PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                            }
-                        }
-                        else {
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Warning "DryRun: Would add PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                            }
-                        }
-                    }
-                    catch {
-                        $ex = $PSItem
-                        $errorMessage = Get-ErrorMessage -ErrorObject $ex
-                    
-                        Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                    
-                        throw "Error adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                    }
-                }
-            }
-
-            if ($true -eq $overwriteExistingProductAction) {
-                # Update Powershell actions of HelloID Self service Product
-                foreach ($PowerShellAction in ($existingProduct.PowerShellActions | Where-Object { $_.Name -in $currentProductActions.Name })) {
-                    try {
-                        # if ($verboseLogging -eq $true) {
-                        #     Hid-Write-Status -Event Information -Message "Adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                        # }
-                        
-                        # Create custom powershell action body object
-                        $updatePowerShellActionBody = [PSCustomObject]@{}
-
-                        # Copy product properties into powershell action body object
-                        $PowerShellAction.psobject.properties | ForEach-Object {
-                            $updatePowerShellActionBody | Add-Member -MemberType NoteProperty -Name $_.Name -Value $_.Value
-                        }
-
-                        # Set objectGUID to powershell action body object (without this it wouldn't be linked to the product)
-                        $updatePowerShellActionBody.objectGUID = $currentProduct.selfServiceProductGUID
-
-                        # Add automationTaskGuid to powershell action body object (without this a powershell action would be created)
-                        $currentProductAction = $null
-                        $currentProductAction = $currentProductActions | Where-Object { $_.Name -eq $PowerShellAction.Name }
-                        $updatePowerShellActionBody | Add-Member -MemberType NoteProperty -Name "automationTaskGuid" -Value $currentProductAction.actionGUID
-
-                        $splatParams = @{
-                            Method = "POST"
-                            Uri    = "automationtasks/powershell"
-                            Body   = ($updatePowerShellActionBody | ConvertTo-Json -Depth 10)
-                        }
-
-                        if ($dryRun -eq $false) {
-                            $updatePowerShellAction = Invoke-HIDRestMethod @splatParams
-
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Success "Successfully added PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                            }
-                        }
-                        else {
-                            if ($verboseLogging -eq $true) {
-                                Hid-Write-Status -Event Warning "DryRun: Would add PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]"
-                            }
-                        }
-                    }
-                    catch {
-                        $ex = $PSItem
-                        $errorMessage = Get-ErrorMessage -ErrorObject $ex
-                    
-                        Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
-                    
-                        throw "Error adding PowerShell action [$($PowerShellAction.Name)] to HelloID Self service Product [$($existingProduct.Name)]. Error Message: $($errorMessage.AuditErrorMessage)"
-                    }
-                }
-            }
-
-            $productUpdatesSuccess++
         }
         catch {
             $ex = $PSItem
@@ -1873,19 +1662,19 @@ try {
     }
 
     if ($dryRun -eq $false) {
-        Hid-Write-Status -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
-        Hid-Write-Summary -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Status -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Summary -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
     }
     else {
-        Hid-Write-Status -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
-        Hid-Write-Summary -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Status -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Summary -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
     }
 }
 catch {
-    Hid-Write-Status -Event Error -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
+    Hid-Write-Status -Event Error -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
     Hid-Write-Status -Event Error -Message "Error at Line [$($_.InvocationInfo.ScriptLineNumber)]: $($_.InvocationInfo.Line)."
     Hid-Write-Status -Event Error -Message "Exception message: $($_.Exception.Message)"
     Hid-Write-Status -Event Error -Message "Exception details: $($_.errordetails)"
-    Hid-Write-Summary -Event Failed -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure Active Directory groups to [$totalProducts] HelloID Self service Products"
+    Hid-Write-Summary -Event Failed -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
 }
 #endregion
