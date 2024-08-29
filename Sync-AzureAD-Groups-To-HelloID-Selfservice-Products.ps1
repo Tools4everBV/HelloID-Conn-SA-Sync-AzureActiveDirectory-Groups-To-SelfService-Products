@@ -1201,7 +1201,7 @@ try {
         $productObject = [PSCustomObject]@{
             name                       = "$($azureADGroupInScope.displayName)"
             description                = "Access to the group $($azureADGroupInScope.displayName)"
-            code                       = ("$($ProductSKUPrefix)" + "$($adGroupInScope.$azureADGroupUniqueProperty)").Replace("-", "")
+            code                       = ("$($ProductSKUPrefix)" + "$($azureADGroupInScope.$azureADGroupUniqueProperty)").Replace("-", "")
             resourceOwnerGroup         = [PSCustomObject]@{
                 id = $helloIDResourceOwnerGroup.groupGuid
             }
