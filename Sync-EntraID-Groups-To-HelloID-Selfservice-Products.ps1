@@ -1,7 +1,7 @@
 #####################################################
-# HelloID-SA-Sync-AzureAD-Groups-To-Products
+# HelloID-SA-Sync-EntraID-Groups-To-Products
 #
-# Version: 2.0.0
+# Version: 3.0.0
 #####################################################
 $VerbosePreference = "SilentlyContinue"
 $informationPreference = "Continue"
@@ -21,45 +21,80 @@ $verboseLogging = $false
 # $portalApiKey = "" # Set from Global Variable
 # $portalApiSecret = "" # Set from Global Variable
 
-#AzureAD Connection Configuration
+######################################################################################
+# Entra ID Connection Configuration
 $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
-# $AzureADtenantID = "" # Set from Global Variable
-# $AzureADAppId = "" # Set from Global Variable
-# $AzureADAppSecret = "" # Set from Global Variable
-$azureADGroupsSearchFilter = "`$search=`"displayName:department_`"" # Optional, when no filter is provided ($azureADGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections
+# $EntraTenantId = "" # Set from Global Variable
+# $EntraAppID = "" # Set from Global Variable
+# $EntraAppSecret = "" # Set from Global Variable
+$entraIDGroupsSearchFilter = "`$search=`"displayName:department_`"" # Optional, when no filter is provided ($entraIDGroupsSearchFilter = $null), all groups will be queried - Only displayName and description are supported with the search filter. Reference: https://learn.microsoft.com/en-us/graph/search-query-parameter?tabs=http#using-search-on-directory-object-collections
+######################################################################################
 
+######################################################################################
 #HelloID Self service Product Configuration
-$productAccessGroup = "Local/__HelloID Selfservice Users"  # If not found, the product is created without extra Access Group
-$calculateProductResourceOwnerPrefixSuffix = $false # If True the resource owner group will be defined per product based on specfied prefix or suffix - If no calculated group is found, the group from $productResourseOwner will be used
-$calculatedResourceOwnerGroupSource = "AzureAD" # Specify the source of the groups - if left empty, this will result in creation of a new group
-$calculatedResourceOwnerGroupPrefix = "" # Specify prefix to recognize the owner group - the owner group will be queried based on the Group name and the specified prefix and suffix - if both left empty, this will result in creation of a new group - if group is not found, it will be created
-$calculatedResourceOwnerGroupSuffix = " - Owner" # Specify suffix to recognize the owner group - the owner group will be queried based on the Group name and the specified prefix and suffix - if both left empty, this will result in creation of a new group - if group is not found, it will be created
-$productResourseOwner = "AzureAD/HelloID_SA_Owners" # If left empty the groupname will be: "Resource owners [target-systeem] - [Product_Naam]") - Only used when is false
-$productApprovalWorkflowId = "37ccd286-9f22-44e3-bc2e-7f421387e98e" # If empty, the Default HelloID Workflow is used. If specified Workflow does not exist the Product creation will raise an error.
-$productVisibility = "All" # If empty, "Disabled" is used. Supported options: All, ResourceOwnerAndManager, ResourceOwner, Disabled
-$productRequestCommentOption = "Required" # If empty, "Optional" is used. Supported options: Optional, Hidden, Required
-$productAllowMultipleRequests = $false # If True the product can be requested unlimited times
+######################################################################################
+
+######################################################################################
+# Default configuration
+# Determine group that give access to the synct products. If not found, the product is created without extra Access Group
+$productAccessGroup = "Local/__HelloID Selfservice Users" 
+# Product approval workflow. Fill in the GUID of the workflow If empty, the Default HelloID Workflow is used. If specified Workflow does not exist the Product creation will raise an error.
+$productApprovalWorkflowId = "6a7e9e2c-f032-4121-9ed2-6135179d8d91" # Tip open the Approval workflow in HelloID, the GUID can be found in the browser URL
+# Product Visibility. If empty, "Disabled" is used. Supported options: All, ResourceOwnerAndManager, ResourceOwner, Disabled
+$productVisibility = "All"
+# Product comment option. If empty, "Optional" is used. Supported options: Optional, Hidden, Required
+$productRequestCommentOption = "Optional"
+# Products can be requested unlimited times. If $false the product can be only requested once
+$productAllowMultipleRequests = $false
+# Product icon. Fill in the name that you can also configure in a product [examples: "windows" or "group"]
 $productFaIcon = "windows"
-$productCategory = "Application Groups" # If the category is not found, the task will fail
-$productReturnOnUserDisable = $true # If True the product will be returned when the user owning the product gets disabled
+# Product category. If the category is not found, the task will fail
+$productCategory = "Application Groups"
+# Return product when a user is disabled in HelloID. If $true the product is automatically returned on disable.
+$productReturnOnUserDisable = $true
+# Remove product when group is not found. If $false product will be disabled
+$removeProduct = $true 
+######################################################################################
 
-$removeProduct = $true # If False product will be disabled
-$overwriteExistingProduct = $false # If True existing product will be overwritten with the input from this script (e.g. the, description, approval worklow or icon). Only use this when you actually changed the product input
-$overwriteExistingProductAction = $false  # If True existing product actions will be overwritten with the input from this script. Only use this when you actually changed the script or variables for the action(s)
-$addMissingProductAction = $false # If True missing product actions (according to the the input from this script) will be added
+######################################################################################
+# Configuration option 1
+# Sync will add the same resourceowner group to every product [value = $false].
+$calculateProductResourceOwnerPrefixSuffix = $false # Comment out if not used
+# Product resource owner group
+$productResourceOwner = "Local/HelloID EntraID Product Owners"
+######################################################################################
 
-$removeProduct = $true # If False product will be disabled
-$overwriteExistingProduct = $true # If True existing product will be overwritten with the input from this script (e.g. the approval worklow or icon). Only use this when you actually changed the product input
-# Note: Actions are always overwritten, no compare takes place between the current actions and the actions this sync would set
-$overwriteAccessGroup = $false # Should be on false by default, only set this to true to overwrite product access group - Only meant for "manual" bulk update, not daily scheduled
-# Note: Access group is always overwritten, no compare takes place between the current access group and the access group this sync would set
+######################################################################################
+# Configuration option 2
+# Sync will add a different resourceowner group to every product. Members in this group are not filled with this sync [value = $true].
+# $calculateProductResourceOwnerPrefixSuffix = $true # Comment out if not used
+# Type of group that will be created if not found [value = "AzureAD" or "Local"]
+$calculatedResourceOwnerGroupSource = "Local"
+# Set a prefix before the queried Entra ID group name. If not found the group will be created. [Filling Prefix or Suffix is a mimimum requerement for option 2]
+$calculatedResourceOwnerGroupPrefix = ""
+# Set a suffix after the queried Entra ID group name. If not found the group will be created. [Filling Prefix or Suffix is a mimimum requerement for option 2]
+$calculatedResourceOwnerGroupSuffix = " - Owner"
+######################################################################################
 
-#Target System Configuration
+#######################################################################################
+# Administrator configuration
+# If $true existing product will be overwritten with the input from this script (e.g. the, description, approval worklow or icon). Only use this when you actually changed the product input
+$overwriteExistingProduct = $false
+# If $true existing product actions will be overwritten with the input from this script. Only use this when you actually changed the script or variables for the action(s)
+$overwriteExistingProductAction = $false # Note: Actions are always overwritten, no compare takes place between the current actions and the actions this sync would set
+# If $true missing product actions (according to the the input from this script) will be added
+$addMissingProductAction = $false 
+# Should be on false by default, only set this to true to overwrite product access group - Only meant for "manual" bulk update, not daily scheduled
+$overwriteAccessGroup = $false # Note: Access group is always overwritten, no compare takes place between the current access group and the access group this sync would set
+#######################################################################################
+
+#######################################################################################
 # Dynamic property invocation
 # The prefix will be used as the first part HelloID Self service Product SKU.
-$ProductSkuPrefix = "AADGRP"
+$ProductSkuPrefix = "ENTRAGRP"
 # The value of the property will be used as HelloID Self service Product SKU
-$azureADGroupUniqueProperty = "id"
+$entraIDGroupUniqueProperty = "id"
+#######################################################################################
 
 #region functions
 function Resolve-HTTPError {
@@ -266,14 +301,14 @@ function New-AuthorizationHeaders {
 #endregion functions
 
 #region HelloId_Actions_Variables
-#region Add AzureAD user to Group script
+#region Add Entra ID user to Group script
 <# First use a double-quoted here-string, where variables are replaced by their values here string (to be able to use a variable) #>
-$addAzureADUserToAzureADGroupScript = @"
+$addEntraIDUserToEntraIDGroupScript = @"
 `$group = [Guid]::New((`$product.code.replace("$ProductSkuPrefix","")))
 
 "@
 <# Then use a single-quoted here-string, where variables are interpreted literally and reproduced exactly #> 
-$addAzureADUserToAzureADGroupScript = $addAzureADUserToAzureADGroupScript + @'
+$addEntraIDUserToEntraIDGroupScript = $addEntraIDUserToEntraIDGroupScript + @'
 $user = $request.requestedFor.userName
 
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
@@ -288,9 +323,9 @@ $WarningPreference = "Continue"
 $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
 
 # Set from Global Variable
-# $AzureADTenantID = "<Azure AD Tenant ID>" # Set from Global Variable
-# $AzureADAppId = "<Azure AD App ID>" # Set from Global Variable
-# $AzureADAppSecret = "<Azure AD App Secret>" # Set from Global Variable
+# $EntraTenantId = "<Entra ID Tenant ID>" # Set from Global Variable
+# $EntraAppID = "<Entra ID App ID>" # Set from Global Variable
+# $EntraAppSecret = "<Entra ID App Secret>" # Set from Global Variable
 
 #region functions
 function Resolve-HTTPError {
@@ -442,7 +477,7 @@ function Resolve-MicrosoftGraphAPIErrorMessage {
 }
 #endregion functions
 try {
-    $headers = New-AuthorizationHeaders -TenantId $AzureADTenantID -ClientId $AzureADAppId -ClientSecret $AzureADAppSecret
+    $headers = New-AuthorizationHeaders -TenantId $EntraTenantId -ClientId $EntraAppID -ClientSecret $EntraAppSecret
 }
 catch {
     $ex = $PSItem
@@ -453,26 +488,26 @@ catch {
     throw "Error creating authorization headers. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Query Azure AD user (to use object in further actions)
+# Query Entra ID user (to use object in further actions)
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADUserSplatParams = @{
+    $queryEntraIDUserSplatParams = @{
         Uri         = "$($MSGraphBaseUri)/v1.0/users/$($user)"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Querying Azure AD user [$($user)]"
+    Write-Verbose "Querying Entra ID user [$($user)]"
 
-    $azureAdUser = Invoke-RestMethod @queryAzureADUserSplatParams -Verbose:$false
+    $entraIdUser = Invoke-RestMethod @queryEntraIDUserSplatParams -Verbose:$false
   
     # Check result count, and throw error when no results are found.
-    if (($azureAdUser | Measure-Object).Count -eq 0) {
-        throw "Azure AD user [$($user)] not found"
+    if (($entraIdUser | Measure-Object).Count -eq 0) {
+        throw "Entra ID user [$($user)] not found"
     }
 
-    Write-Information "Successfully queried Azure AD user [$($user)]. Name: [$($azureAdUser.displayName)], UserPrincipalName: [$($azureAdUser.userPrincipalName)], ID: [$($azureAdUser.id)]"
+    Write-Information "Successfully queried Entra ID user [$($user)]. Name: [$($entraIdUser.displayName)], UserPrincipalName: [$($entraIdUser.userPrincipalName)], ID: [$($entraIdUser.id)]"
 }
 catch {
     $ex = $PSItem
@@ -480,29 +515,29 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD user [$($user)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Entra ID user [$($user)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Query Azure AD group (to use object in further actions)
+# Query Entra ID group (to use object in further actions)
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADGroupSplatParams = @{
+    $queryEntraIDGroupSplatParams = @{
         Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($group)"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Querying Azure AD group [$($group)]"
+    Write-Verbose "Querying Entra ID group [$($group)]"
 
-    $azureAdGroup = Invoke-RestMethod @queryAzureADGroupSplatParams -Verbose:$false
+    $entraIdGroup = Invoke-RestMethod @queryEntraIDGroupSplatParams -Verbose:$false
   
     # Check result count, and throw error when no results are found.
-    if (($azureAdGroup | Measure-Object).Count -eq 0) {
-        throw "Azure AD group [$($group)] not found"
+    if (($entraIdGroup | Measure-Object).Count -eq 0) {
+        throw "Entra ID group [$($group)] not found"
     }
 
-    Write-Information "Successfully queried Azure AD group [$($group)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
+    Write-Information "Successfully queried Entra ID group [$($group)]. Name: [$($entraIdGroup.displayName)], Description: [$($entraIdGroup.description)], ID: [$($entraIdGroup.id)]"
 }
 catch {
     $ex = $PSItem
@@ -510,35 +545,35 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Entra ID group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Add Azure AD user to Azure AD group
+# Add Entra ID user to Entra ID group
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-post-members?view=graph-rest-1.0&tabs=http
     $body = [PSCustomObject]@{
-        "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($azureAdUser.id)"
+        "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($entraIdUser.id)"
     } | ConvertTo-Json -Depth 10
 
-    $addAzureADMemberToGroupSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($azureAdGroup.id)/members/`$ref"
+    $addEntraIDMemberToGroupSplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($entraIdGroup.id)/members/`$ref"
         Headers     = $headers
         Method      = 'POST'
         Body        = ([System.Text.Encoding]::UTF8.GetBytes($body))
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Adding Azure AD user [$($azureAdUser.id)] to Azure AD group [$($azureAdGroup.id)]"
+    Write-Verbose "Adding Entra ID user [$($entraIdUser.id)] to Entra ID group [$($entraIdGroup.id)]"
 
-    $addAzureADMemberToGroup = Invoke-RestMethod @addAzureADMemberToGroupSplatParams -Verbose:$false
+    $addEntraIDMemberToGroup = Invoke-RestMethod @addEntraIDMemberToGroupSplatParams -Verbose:$false
 
     $Log = @{
         Action            = "GrantMembership" # optional. ENUM (undefined = default) 
-        System            = "AzureActiveDirectory" # optional (free format text) 
-        Message           = "Successfully added Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+        System            = "EntraID" # optional (free format text) 
+        Message           = "Successfully added Entra ID user [$($entraIdUser.displayName)] to Entra ID group [$($entraIdGroup.displayName)]" # required (free format text) 
         IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-        TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-        TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+        TargetIdentifier  = $entraIdUser.id # optional (free format text)
     }
     #send result back  
     Write-Information -Tags "Audit" -MessageData $log
@@ -554,11 +589,11 @@ catch {
     if ($errorMessage.auditErrorMessage -like "*One or more added object references already exist for the following modified properties*") {
         $Log = @{
             Action            = "GrantMembership" # optional. ENUM (undefined = default) 
-            System            = "AzureActiveDirectory" # optional (free format text) 
-            Message           = "Azure AD user [$($azureAdUser.displayName)] is already a member of Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+            System            = "EntraID" # optional (free format text) 
+            Message           = "Entra ID user [$($entraIdUser.displayName)] is already a member of Entra ID group [$($entraIdGroup.displayName)]" # required (free format text) 
             IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+            TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+            TargetIdentifier  = $entraIdUser.id # optional (free format text)
         }
         #send result back  
         Write-Information -Tags "Audit" -MessageData $log
@@ -566,29 +601,29 @@ catch {
     else {
         $Log = @{
             Action            = "GrantMembership" # optional. ENUM (undefined = default) 
-            System            = "AzureActiveDirectory" # optional (free format text) 
-            Message           = "Error adding Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
+            System            = "EntraID" # optional (free format text) 
+            Message           = "Error adding Entra ID user [$($entraIdUser.displayName)] to Entra ID group [$($entraIdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
             IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+            TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+            TargetIdentifier  = $entraIdUser.id # optional (free format text)
         }
         #send result back  
         Write-Information -Tags "Audit" -MessageData $log
         
-        throw "Error adding Azure AD user [$($azureAdUser.displayName)] to Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
+        throw "Error adding Entra ID user [$($entraIdUser.displayName)] to Entra ID group [$($entraIdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
     }
 }
 '@
-#endregion Add AzureAD user to Group script
+#endregion Add Entra ID user to Group script
 
-#region Remove AzureAD user from Group script
+#region Remove Entra ID user from Group script
 <# First use a double-quoted here-string, where variables are replaced by their values here string (to be able to use a variable) #>
-$removeAzureADUserFromAzureADGroupScript = @"
+$removeEntraIDUserFromEntraIDGroupScript = @"
 `$group = [Guid]::New((`$product.code.replace("$ProductSkuPrefix","")))
 
 "@
 <# Then use a single-quoted here-string, where variables are interpreted literally and reproduced exactly #> 
-$removeAzureADUserFromAzureADGroupScript = $removeAzureADUserFromAzureADGroupScript + @'
+$removeEntraIDUserFromEntraIDGroupScript = $removeEntraIDUserFromEntraIDGroupScript + @'
 $user = $request.requestedFor.userName
 
 # Set TLS to accept TLS, TLS 1.1 and TLS 1.2
@@ -603,9 +638,9 @@ $WarningPreference = "Continue"
 $MSGraphBaseUri = "https://graph.microsoft.com/" # Fixed value
 
 # Set from Global Variable
-# $AzureADTenantID = "<Azure AD Tenant ID>" # Set from Global Variable
-# $AzureADAppId = "<Azure AD App ID>" # Set from Global Variable
-# $AzureADAppSecret = "<Azure AD App Secret>" # Set from Global Variable
+# $EntraTenantId = "<Entra ID Tenant ID>" # Set from Global Variable
+# $EntraAppID = "<Entra ID App ID>" # Set from Global Variable
+# $EntraAppSecret = "<Entra ID App Secret>" # Set from Global Variable
 
 #region functions
 function Resolve-HTTPError {
@@ -757,7 +792,7 @@ function Resolve-MicrosoftGraphAPIErrorMessage {
 }
 #endregion functions
 try {
-    $headers = New-AuthorizationHeaders -TenantId $AzureADTenantID -ClientId $AzureADAppId -ClientSecret $AzureADAppSecret
+    $headers = New-AuthorizationHeaders -TenantId $EntraTenantId -ClientId $EntraAppID -ClientSecret $EntraAppSecret
 }
 catch {
     $ex = $PSItem
@@ -768,26 +803,26 @@ catch {
     throw "Error creating authorization headers. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Query Azure AD user (to use object in further actions)
+# Query Entra ID user (to use object in further actions)
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/user-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADUserSplatParams = @{
+    $queryEntraIDUserSplatParams = @{
         Uri         = "$($MSGraphBaseUri)/v1.0/users/$($user)"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Querying Azure AD user [$($user)]"
+    Write-Verbose "Querying Entra ID user [$($user)]"
 
-    $azureAdUser = Invoke-RestMethod @queryAzureADUserSplatParams -Verbose:$false
+    $entraIdUser = Invoke-RestMethod @queryEntraIDUserSplatParams -Verbose:$false
   
     # Check result count, and throw error when no results are found.
-    if (($azureAdUser | Measure-Object).Count -eq 0) {
-        throw "Azure AD user [$($user)] not found"
+    if (($entraIdUser | Measure-Object).Count -eq 0) {
+        throw "Entra ID user [$($user)] not found"
     }
 
-    Write-Information "Successfully queried Azure AD user [$($user)]. Name: [$($azureAdUser.displayName)], UserPrincipalName: [$($azureAdUser.userPrincipalName)], ID: [$($azureAdUser.id)]"
+    Write-Information "Successfully queried Entra ID user [$($user)]. Name: [$($entraIdUser.displayName)], UserPrincipalName: [$($entraIdUser.userPrincipalName)], ID: [$($entraIdUser.id)]"
 }
 catch {
     $ex = $PSItem
@@ -795,29 +830,29 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD user [$($user)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Entra ID user [$($user)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Query Azure AD group (to use object in further actions)
+# Query Entra ID group (to use object in further actions)
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-get?view=graph-rest-1.0&tabs=http
-    $queryAzureADGroupSplatParams = @{
+    $queryEntraIDGroupSplatParams = @{
         Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($group)"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Querying Azure AD group [$($group)]"
+    Write-Verbose "Querying Entra ID group [$($group)]"
 
-    $azureAdGroup = Invoke-RestMethod @queryAzureADGroupSplatParams -Verbose:$false
+    $entraIdGroup = Invoke-RestMethod @queryEntraIDGroupSplatParams -Verbose:$false
   
     # Check result count, and throw error when no results are found.
-    if (($azureAdGroup | Measure-Object).Count -eq 0) {
-        throw "Azure AD group [$($group)] not found"
+    if (($entraIdGroup | Measure-Object).Count -eq 0) {
+        throw "Entra ID group [$($group)] not found"
     }
 
-    Write-Information "Successfully queried Azure AD group [$($group)]. Name: [$($azureAdGroup.displayName)], Description: [$($azureAdGroup.description)], ID: [$($azureAdGroup.id)]"
+    Write-Information "Successfully queried Entra ID group [$($group)]. Name: [$($entraIdGroup.displayName)], Description: [$($entraIdGroup.description)], ID: [$($entraIdGroup.id)]"
 }
 catch {
     $ex = $PSItem
@@ -825,30 +860,30 @@ catch {
 
     Write-Verbose "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Entra ID group [$($group)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
-# Remove Azure AD user from Azure AD group
+# Remove Entra ID user from Entra ID group
 try {
     # More information about the API call: https://learn.microsoft.com/en-us/graph/api/group-delete-members?view=graph-rest-1.0&tabs=http
-    $removeAzureADMemberToGroupSplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($azureAdGroup.id)/members/$($azureAdUser.id)/`$ref"
+    $removeEntraIDMemberToGroupSplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups/$($entraIdGroup.id)/members/$($entraIdUser.id)/`$ref"
         Headers     = $headers
         Method      = 'DELETE'
         ErrorAction = 'Stop' # Makes sure the action enters the catch when an error occurs
     }
 
-    Write-Verbose "Removing Azure AD user [$($azureAdUser.id)] from Azure AD group [$($azureAdGroup.id)]"
+    Write-Verbose "Removing Entra ID user [$($entraIdUser.id)] from Entra ID group [$($entraIdGroup.id)]"
 
-    $removeAzureADMemberToGroup = Invoke-RestMethod @removeAzureADMemberToGroupSplatParams -Verbose:$false
+    $removeEntraIDMemberToGroup = Invoke-RestMethod @removeEntraIDMemberToGroupSplatParams -Verbose:$false
 
     $Log = @{
         Action            = "RevokeMembership" # optional. ENUM (undefined = default) 
-        System            = "AzureActiveDirectory" # optional (free format text) 
-        Message           = "Successfully removed Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+        System            = "EntraID" # optional (free format text) 
+        Message           = "Successfully removed Entra ID user [$($entraIdUser.displayName)] from Entra ID group [$($entraIdGroup.displayName)]" # required (free format text) 
         IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-        TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-        TargetIdentifier  = $azureAdUser.id # optional (free format text)
+        TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+        TargetIdentifier  = $entraIdUser.id # optional (free format text)
     }
     #send result back  
     Write-Information -Tags "Audit" -MessageData $log
@@ -861,14 +896,14 @@ catch {
 
     # Since the error message for adding a user that is already member is a 400 (bad request), we cannot check on a code or type
     # this may result in an incorrect check when the error messages are in any other language than english, please change this accordingly
-    if ($auditErrorMessage -like "*Error code: Request_ResourceNotFound*" -and $auditErrorMessage -like "*$($azureAdGroup.id)*") {
+    if ($auditErrorMessage -like "*Error code: Request_ResourceNotFound*" -and $auditErrorMessage -like "*$($entraIdGroup.id)*") {
         $Log = @{
             Action            = "RevokeMembership" # optional. ENUM (undefined = default) 
-            System            = "AzureActiveDirectory" # optional (free format text) 
-            Message           = "Azure AD user [$($azureAdUser.displayName)] is already no longer a member of Azure AD group [$($azureAdGroup.displayName)]" # required (free format text) 
+            System            = "EntraID" # optional (free format text) 
+            Message           = "Entra ID user [$($entraIdUser.displayName)] is already no longer a member of Entra ID group [$($entraIdGroup.displayName)]" # required (free format text) 
             IsError           = $false # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+            TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+            TargetIdentifier  = $entraIdUser.id # optional (free format text)
         }
         #send result back  
         Write-Information -Tags "Audit" -MessageData $log
@@ -876,28 +911,28 @@ catch {
     else {
         $Log = @{
             Action            = "GrantMembership" # optional. ENUM (undefined = default) 
-            System            = "AzureActiveDirectory" # optional (free format text) 
-            Message           = "Error removing Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
+            System            = "EntraID" # optional (free format text) 
+            Message           = "Error removing Entra ID user [$($entraIdUser.displayName)] from Entra ID group [$($entraIdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)" # required (free format text) 
             IsError           = $true # optional. Elastic reporting purposes only. (default = $false. $true = Executed action returned an error) 
-            TargetDisplayName = $azureAdUser.displayName # optional (free format text)
-            TargetIdentifier  = $azureAdUser.id # optional (free format text)
+            TargetDisplayName = $entraIdUser.displayName # optional (free format text)
+            TargetIdentifier  = $entraIdUser.id # optional (free format text)
         }
         #send result back  
         Write-Information -Tags "Audit" -MessageData $log
         
-        throw "Error removing Azure AD user [$($azureAdUser.displayName)] from Azure AD group [$($azureAdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
+        throw "Error removing Entra ID user [$($entraIdUser.displayName)] from Entra ID group [$($entraIdGroup.displayName)]. Error Message: $($errorMessage.AuditErrorMessage)"
     }
 }
 '@
-#endregion Remove AzureAD user from Group script
+#endregion Remove Entra ID user from Group script
 #endregion HelloId_Actions_Variables
 
 #region script
-Hid-Write-Status -Event Information -Message "Starting synchronization of Azure Active Directory to HelloID Self service Producs"
-Hid-Write-Status -Event Information -Message "------[[Azure Active Directory]]-----------"
-# Get Azure AD Groups
+Hid-Write-Status -Event Information -Message "Starting synchronization of Entra ID to HelloID Self service Producs"
+Hid-Write-Status -Event Information -Message "-----------[Entra ID]-----------"
+# Get Entra ID Groups
 try {  
-    $headers = New-AuthorizationHeaders -TenantId $azureADtenantID -ClientId $azureADAppId -ClientSecret $azureADAppSecret
+    $headers = New-AuthorizationHeaders -TenantId $EntraTenantId -ClientId $EntraAppID -ClientSecret $EntraAppSecret
 
     $properties = @(
         "id"
@@ -912,59 +947,59 @@ try {
     $securityGroupFilter = "NOT(groupTypes/any(c:c+eq+'DynamicMembership')) and onPremisesSyncEnabled eq null and mailEnabled eq false and securityEnabled eq true"
     $managableGroupsFilter = "`$filter=$m365GroupFilter or $securityGroupFilter"
   
-    $azureADQuerySplatParams = @{
-        Uri         = "$($MSGraphBaseUri)/v1.0/groups?$managableGroupsFilter&$azureADGroupsSearchFilter&$select&`$top=999&`$count=true"
+    $entraIDQuerySplatParams = @{
+        Uri         = "$($MSGraphBaseUri)/v1.0/groups?$managableGroupsFilter&$entraIDGroupsSearchFilter&$select&`$top=999&`$count=true"
         Headers     = $headers
         Method      = 'GET'
         ErrorAction = 'Stop'
     }
 
-    $azureADGroups = [System.Collections.ArrayList]@()
-    $getAzureADGroupsResponse = $null
-    $getAzureADGroupsResponse = Invoke-RestMethod @azureADQuerySplatParams -Verbose:$false
-    if ($getAzureADGroupsResponse.value -is [array]) {
-        [void]$azureADGroups.AddRange($getAzureADGroupsResponse.value)
+    $entraIdGroups = [System.Collections.ArrayList]@()
+    $getEntraIDGroupsResponse = $null
+    $getEntraIDGroupsResponse = Invoke-RestMethod @entraIDQuerySplatParams -Verbose:$false
+    if ($getEntraIDGroupsResponse.value -is [array]) {
+        [void]$entraIdGroups.AddRange($getEntraIDGroupsResponse.value)
     }
     else {
-        [void]$azureADGroups.Add($getAzureADGroupsResponse.value)
+        [void]$entraIdGroups.Add($getEntraIDGroupsResponse.value)
     }
 
-    while (![string]::IsNullOrEmpty($getAzureADGroupsResponse.'@odata.nextLink')) {
-        $azureADQuerySplatParams = @{
-            Uri         = $getAzureADGroupsResponse.'@odata.nextLink'
+    while (![string]::IsNullOrEmpty($getEntraIDGroupsResponse.'@odata.nextLink')) {
+        $entraIDQuerySplatParams = @{
+            Uri         = $getEntraIDGroupsResponse.'@odata.nextLink'
             Headers     = $headers
             Method      = 'GET'
             ErrorAction = 'Stop'
         }
-        $getAzureADGroupsResponse = $null
-        $getAzureADGroupsResponse = Invoke-RestMethod @azureADQuerySplatParams -Verbose:$false
-        if ($getAzureADGroupsResponse.value -is [array]) {
-            [void]$azureADGroups.AddRange($getAzureADGroupsResponse.value)
+        $getEntraIDGroupsResponse = $null
+        $getEntraIDGroupsResponse = Invoke-RestMethod @entraIDQuerySplatParams -Verbose:$false
+        if ($getEntraIDGroupsResponse.value -is [array]) {
+            [void]$entraIdGroups.AddRange($getEntraIDGroupsResponse.value)
         }
         else {
-            [void]$azureADGroups.Add($getAzureADGroupsResponse.value)
+            [void]$entraIdGroups.Add($getEntraIDGroupsResponse.value)
         }
     }
 
 
-    $azureADGroupsInScope = [System.Collections.Generic.List[Object]]::New()
-    foreach ($azureADGroup in $azureADGroups) {
+    $entraIdGroupsInScope = [System.Collections.Generic.List[Object]]::New()
+    foreach ($entraIdGroup in $entraIdGroups) {
         # Custom - Only process groups with a description
-        if ([string]::IsNullOrEmpty($azureADGroup.description)) {
+        if ([string]::IsNullOrEmpty($entraIdGroup.description)) {
             if ($verboseLogging -eq $true) {
-                Hid-Write-Status -Event Warning "No description set in Azure AD for Azure AD group [$($azureADGroup)]"
+                Hid-Write-Status -Event Warning "No description set in Entra ID for Entra ID group [$($entraIdGroup)]"
             }
         }
         else {
-            [void]$azureADGroupsInScope.Add($azureADGroup)
+            [void]$entraIdGroupsInScope.Add($entraIdGroup)
         }
     }
 
-    if (($azureADGroupsInScope | Measure-Object).Count -eq 0) {
-        throw "No Azure Active Directory Groups have been found"
+    if (($entraIdGroupsInScope | Measure-Object).Count -eq 0) {
+        throw "No Entra ID Groups have been found"
     }
 
-    Hid-Write-Status -Event Success -Message "Successfully queried Azure AD groups. Result count: $(($azureADGroupsInScope | Measure-Object).Count)"
+    Hid-Write-Status -Event Success -Message "Successfully queried Entra ID groups. Result count: $(($entraIdGroupsInScope | Measure-Object).Count)"
 }
 catch {
     $ex = $PSItem
@@ -972,7 +1007,7 @@ catch {
 
     Hid-Write-Status -Event Error -Message "Error at Line [$($ex.InvocationInfo.ScriptLineNumber)]: $($ex.InvocationInfo.Line). Error: $($($errorMessage.VerboseErrorMessage))"
 
-    throw "Error querying Azure AD groups that match filter [$($azureADGroupsSearchFilter)]. Error Message: $($errorMessage.AuditErrorMessage)"
+    throw "Error querying Entra ID groups that match filter [$($entraIDGroupsSearchFilter)]. Error Message: $($errorMessage.AuditErrorMessage)"
 }
 
 Hid-Write-Status -Event Information -Message "------[HelloID]------"
@@ -1089,22 +1124,22 @@ Hid-Write-Status -Event Information -Message "------[Calculations of combined da
 try {
     # Define product objects
     $productObjects = [System.Collections.ArrayList]@()
-    foreach ($azureADGroupInScope in $azureADGroupsInScope) {
+    foreach ($entraIdGroupInScope in $entraIdGroupsInScope) {
         # Define ManagedBy Group
         if ( $calculateProductResourceOwnerPrefixSuffix -eq $true ) {
             # Calculate resource owner group by specfied prefix or suffix
             if (-not[string]::IsNullOrEmpty($($calculatedResourceOwnerGroupPrefix)) -or -not[string]::IsNullOrEmpty($($calculatedResourceOwnerGroupSuffix))) {
-                $resourceOwnerGroupName = "$($calculatedResourceOwnerGroupSource)/" + "$($calculatedResourceOwnerGroupPrefix)" + "$($azureADGroupInScope.DisplayName)" + "$($calculatedResourceOwnerGroupSuffix)"
+                $resourceOwnerGroupName = "$($calculatedResourceOwnerGroupSource)/" + "$($calculatedResourceOwnerGroupPrefix)" + "$($entraIdGroupInScope.DisplayName)" + "$($calculatedResourceOwnerGroupSuffix)"
             }
             elseif ([string]::IsNullOrEmpty($($calculatedResourceOwnerGroupPrefix)) -and [string]::IsNullOrEmpty($($calculatedResourceOwnerGroupSuffix))) {
-                $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourseOwner) ) { "Local/$($azureADGroupInScope.DisplayName) Resource Owners" } else { $productResourseOwner }
+                $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourceOwner) ) { "Local/$($entraIdGroupInScope.DisplayName) Resource Owners" } else { $productResourceOwner }
                 if ($verboseLogging -eq $true) {
                     Hid-Write-Status -Event Warning "No Resource Owner Group Prefix of Suffix specified. Using default resource owner group [$($resourceOwnerGroupName)]"
                 }
             }
         }
         else {
-            $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourseOwner) ) { "Local/$($azureADGroupInScope.DisplayName) Resource Owners" } else { $productResourseOwner }
+            $resourceOwnerGroupName = if ([string]::IsNullOrWhiteSpace($productResourceOwner) ) { "Local/$($entraIdGroupInScope.DisplayName) Resource Owners" } else { $productResourceOwner }
         }
 
         # Get HelloID Resource Owner Group and create if it doesn't exist
@@ -1166,11 +1201,11 @@ try {
         #region Define On Approve actions
         $onApproveActions = [System.Collections.Generic.list[object]]@()
 
-        # Add action to Add Azure AD user to Azure AD Group
+        # Add action to Add Entra ID user to Entra ID Group
         [void]$onApproveActions.Add([PSCustomObject]@{
                 id          = "" # supplying an id when creating a product action is not supported. You have to leave the 'id' property empty or leave the property out alltogether when creating a new product action
-                name        = "Add-AzureADUserToAzureADGroup"
-                script      = $addAzureADUserToAzureADGroupScript
+                name        = "Add-EntraIDUserToEntraIDGroup"
+                script      = $addEntraIDUserToEntraIDGroupScript
                 agentPoolId = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
                 runInCloud  = $false
             })
@@ -1183,11 +1218,11 @@ try {
         #region Define On Return actions
         $onReturnActions = [System.Collections.Generic.list[object]]@()
 
-        # Add action to Remove Azure AD user from Azure AD Group
+        # Add action to Remove Entra ID user from Entra ID Group
         [void]$onReturnActions.Add([PSCustomObject]@{
                 id          = "" # supplying an id when creating a product action is not supported. You have to leave the 'id' property empty or leave the property out alltogether when creating a new product action
-                name        = "Remove-AzureADUserFromAzureADGroup"
-                script      = $removeAzureADUserFromAzureADGroupScript
+                name        = "Remove-EntraIDUserFromEntraIDGroup"
+                script      = $removeEntraIDUserFromEntraIDGroupScript
                 agentPoolId = "$($helloIDAgentPoolsInScope.agentPoolGUID)"
                 runInCloud  = $false
             })
@@ -1199,9 +1234,9 @@ try {
         #endregion Define On Withdrawn actions
 
         $productObject = [PSCustomObject]@{
-            name                       = "$($azureADGroupInScope.displayName)"
-            description                = "Access to the group $($azureADGroupInScope.displayName)"
-            code                       = ("$($ProductSKUPrefix)" + "$($azureADGroupInScope.$azureADGroupUniqueProperty)").Replace("-", "")
+            name                       = "$($entraIdGroupInScope.displayName)"
+            description                = "Access to the group $($entraIdGroupInScope.displayName)"
+            code                       = ("$($ProductSKUPrefix)" + "$($entraIdGroupInScope.$entraIDGroupUniqueProperty)").Replace("-", "")
             resourceOwnerGroup         = [PSCustomObject]@{
                 id = $helloIDResourceOwnerGroup.groupGuid
             }
@@ -1277,7 +1312,7 @@ catch {
 
 Hid-Write-Status -Event Information -Message "------[Summary]------"
 
-Hid-Write-Status -Event Information -Message "Total Azure AD Groups in scope [$(($azureADGroupsInScope | Measure-Object).Count)]"
+Hid-Write-Status -Event Information -Message "Total Entra ID Groups in scope [$(($entraIdGroupsInScope | Measure-Object).Count)]"
 
 if ($overwriteExistingProduct -eq $true -or $overwriteExistingProductAction -eq $true -or $addMissingProductAction -eq $true) {
     Hid-Write-Status -Event Information "Total HelloID Self service Product(s) already exist (and will be updated) [$(($existingProducts | Measure-Object).Count)]. Overwrite Product: [$($overwriteExistingProduct)]"
@@ -1662,19 +1697,19 @@ try {
     }
 
     if ($dryRun -eq $false) {
-        Hid-Write-Status -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
-        Hid-Write-Summary -Event Success -Message "Successfully synchronized [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Status -Event Success -Message "Successfully synchronized [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Summary -Event Success -Message "Successfully synchronized [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
     }
     else {
-        Hid-Write-Status -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
-        Hid-Write-Summary -Event Success -Message "DryRun: Would synchronize [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Status -Event Success -Message "DryRun: Would synchronize [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
+        Hid-Write-Summary -Event Success -Message "DryRun: Would synchronize [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
     }
 }
 catch {
-    Hid-Write-Status -Event Error -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+    Hid-Write-Status -Event Error -Message "Error synchronization of [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
     Hid-Write-Status -Event Error -Message "Error at Line [$($_.InvocationInfo.ScriptLineNumber)]: $($_.InvocationInfo.Line)."
     Hid-Write-Status -Event Error -Message "Exception message: $($_.Exception.Message)"
     Hid-Write-Status -Event Error -Message "Exception details: $($_.errordetails)"
-    Hid-Write-Summary -Event Failed -Message "Error synchronization of [$(($azureADGroupsInScope | Measure-Object).Count)] Azure AD Groups to [$totalProducts] HelloID Self service Products"
+    Hid-Write-Summary -Event Failed -Message "Error synchronization of [$(($entraIdGroupsInScope | Measure-Object).Count)] Entra ID Groups to [$totalProducts] HelloID Self service Products"
 }
 #endregion
